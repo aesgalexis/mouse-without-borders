@@ -1,6 +1,6 @@
 #define AppName "Mouse, with out borders"
 #ifndef AppVersion
-  #define AppVersion "0.1.11"
+  #define AppVersion "0.1.12"
 #endif
 
 [Setup]
@@ -103,6 +103,32 @@ function GetCurrentProcessId: Cardinal;
   external 'GetCurrentProcessId@kernel32.dll stdcall';
 function ProcessIdToSessionId(ProcessId: Cardinal; var SessionId: Cardinal): Boolean;
   external 'ProcessIdToSessionId@kernel32.dll stdcall';
+function OpenProcess(Access: Cardinal; InheritHandle: Boolean; ProcessId: Cardinal): THandle;
+  external 'OpenProcess@kernel32.dll stdcall';
+function GetExitCodeProcess(Process: THandle; var ExitCode: Cardinal): Boolean;
+  external 'GetExitCodeProcess@kernel32.dll stdcall';
+function CloseHandle(Handle: THandle): Boolean;
+  external 'CloseHandle@kernel32.dll stdcall';
+
+var
+  TerminatedInstanceFound: Boolean;
+
+function IsLiveProcess(ProcessId: Cardinal): Boolean;
+var
+  Handle: THandle;
+  ExitCode: Cardinal;
+begin
+  Result := True; { Fail closed when process state cannot be inspected. }
+  Handle := OpenProcess($1000, False, ProcessId); { QUERY_LIMITED_INFORMATION }
+  if Handle = 0 then
+    exit;
+  try
+    if GetExitCodeProcess(Handle, ExitCode) then
+      Result := ExitCode = 259; { STILL_ACTIVE }
+  finally
+    CloseHandle(Handle);
+  end;
+end;
 
 procedure RequestMwbExit(ProcessId: Cardinal);
 var
@@ -130,7 +156,12 @@ function IsTargetProcess(Process: Variant; AppPath: String): Boolean;
 begin
   Result := False;
   if not VarIsNull(Process.ExecutablePath) then
-    Result := CompareText(Process.ExecutablePath, AppPath) = 0;
+    if CompareText(Process.ExecutablePath, AppPath) = 0 then
+    begin
+      Result := IsLiveProcess(Process.ProcessId);
+      if not Result then
+        TerminatedInstanceFound := True;
+    end;
 end;
 
 function CountTargetProcesses(Services: Variant; Query, AppPath: String): Integer;
@@ -213,8 +244,25 @@ begin
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  AppPath, RetiredPath: String;
 begin
+  TerminatedInstanceFound := False;
   Result := CloseRunningMwb;
+  { Windows may retain an image mapping while terminated kernel threads drain.
+    Move that image aside so Setup can write the new EXE without a reboot. }
+  if (Result = '') and TerminatedInstanceFound then
+  begin
+    AppPath := ExpandConstant('{app}\MouseWithOutBorders.exe');
+    RetiredPath := ExpandConstant('{app}\MouseWithOutBorders-retired-{#AppVersion}.exe');
+    if FileExists(AppPath) then
+    begin
+      if FileExists(RetiredPath) then
+        DeleteFile(RetiredPath);
+      if not RenameFile(AppPath, RetiredPath) then
+        Result := 'The previous application image is still locked by Windows. Restart Windows once, then retry this update.';
+    end;
+  end;
 end;
 
 function InitializeUninstall: Boolean;

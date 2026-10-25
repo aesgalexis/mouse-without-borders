@@ -12,8 +12,8 @@ internal static class Program
                 MessageBoxButtons.OK, MessageBoxIcon.Error);
             return;
         }
-        using Mutex singleton = new(true, @"Local\MouseWithOutBorders-79DBA1BD", out bool created);
-        if (!created)
+        using AppInstanceGuard singleton = new();
+        if (!singleton.Acquired)
         {
             MessageBox.Show("Mouse, with out borders is already running.\nCheck the Windows notification area.",
                 "Mouse, with out borders", MessageBoxButtons.OK, MessageBoxIcon.Information);

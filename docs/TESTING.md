@@ -34,6 +34,21 @@ test. Physical acceptance must install 0.1.11 on both PCs, repeat crossings and
 returns from each local mouse/trackpad, and verify local recovery and the emergency
 shortcut with MWB hidden. No third-party application is identified as the cause.
 
+## Version 0.1.12 terminated-instance update (2026-10-25)
+
+An actual local installation attempt with the published 0.1.11 installer failed:
+WMI retained three old MWB processes with non-STILL_ACTIVE exit codes while their
+native termination waits remained pending. Setup counted those as live, and the
+retained singleton object also prevented normal startup.
+
+0.1.12 checks native termination status, renames the terminated mapped executable
+before replacement, and acquires mutex ownership rather than checking object
+existence. The complete UI suite passes, including unowned/abandoned retained
+mutexes, restart, and rejection while another thread owns the instance mutex.
+The locally built 0.1.12 installer then completed successfully on this affected
+PC (exit 0), installed file version 0.1.12.0, and reopened MWB without a Windows
+restart. The original native/two-PC validation limitation above still applies.
+
 ## Version 0.1.10 clipboard and interface verification (2026-10-24)
 
 The Windows Release build and self-contained executable compile successfully. The cleaned

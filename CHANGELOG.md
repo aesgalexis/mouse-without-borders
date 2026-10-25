@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.12 — Update and restart after a terminated instance
+
+- Include all 0.1.11 local-input recovery changes.
+- Check the native process exit code before counting an old instance as running. Move a terminated executable image aside when Windows still retains its mapping, allowing Setup to write the replacement.
+- Acquire the application mutex rather than treating the existence of a retained named object as a running instance. Recover abandoned ownership while preserving duplicate-instance prevention.
+- Verify the actual previously blocked local update, plus retained/abandoned mutex ownership and live duplicate rejection.
+
 ## 0.1.11 — Local mouse recovery after handoff
 
 - Move native mouse injection to a bounded output worker, keeping the capture thread available while Windows delivers injected events. Preserve queued button releases during normal shutdown.

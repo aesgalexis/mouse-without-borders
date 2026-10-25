@@ -17,9 +17,9 @@
 
 ## Install on both PCs
 
-The current release is **0.1.11**, with local mouse/trackpad recovery after handoff and a **Ctrl+Alt+F12** emergency stop. It retains optional text/file clipboard sharing, reliable suppression of remapped keys, a concise English interface and desktop shortcut creation disabled by default during updates. It includes the earlier receiver responsiveness, focus and input-recovery fixes, automatic startup/reconnection and administrator restart. Install it on both PCs for clipboard sharing. Older two-way releases retain mouse compatibility; 0.1.2 uses the incompatible one-way protocol.
+The current release is **0.1.12**, with local mouse/trackpad recovery after handoff and a **Ctrl+Alt+F12** emergency stop. It retains optional text/file clipboard sharing, reliable suppression of remapped keys, a concise English interface and desktop shortcut creation disabled by default during updates. It includes the earlier receiver responsiveness, focus and input-recovery fixes, automatic startup/reconnection and administrator restart. Install it on both PCs for clipboard sharing. Older two-way releases retain mouse compatibility; 0.1.2 uses the incompatible one-way protocol.
 
-1. Download [MouseWithOutBorders-0.1.11-Setup.exe](https://github.com/aesgalexis/mouse-without-borders/releases/download/v0.1.11/MouseWithOutBorders-0.1.11-Setup.exe) from the [v0.1.11 release](https://github.com/aesgalexis/mouse-without-borders/releases/tag/v0.1.11). A portable ZIP and SHA-256 checksums are also available there.
+1. Download [MouseWithOutBorders-0.1.12-Setup.exe](https://github.com/aesgalexis/mouse-without-borders/releases/download/v0.1.12/MouseWithOutBorders-0.1.12-Setup.exe) from the [v0.1.12 release](https://github.com/aesgalexis/mouse-without-borders/releases/tag/v0.1.12). A portable ZIP and SHA-256 checksums are also available there.
 2. Run the setup on **both Windows 10/11 x64 PCs**. No administrator rights are needed to install for the current user.
 3. On either PC, select the receiving role, then **Start receiving**. Note the displayed local IP and **8-character pairing code**.
 4. On the other PC, click **Connect to other PC**, enter that IP and code, and select which edge leads to the first PC. Click **Connect mouse**.
@@ -27,7 +27,7 @@ The current release is **0.1.11**, with local mouse/trackpad recovery after hand
 
 For an assisted Windows installation or rollback, see [installation instructions](docs/INSTALLATION.md). For automated checks vs. pending two-PC tests, see [verification record](docs/TESTING.md). Changes are tracked in [CHANGELOG.md](CHANGELOG.md).
 
-The assisted `scripts/install.ps1` script defaults to 0.1.11. It verifies release SHA-256 checksums and installs only on the current PC; `-Receiver` adds the optional private-network firewall rule on the PC accepting the connection.
+The assisted `scripts/install.ps1` script defaults to 0.1.12. It verifies release SHA-256 checksums and installs only on the current PC; `-Receiver` adds the optional private-network firewall rule on the PC accepting the connection.
 
 The pairing code has **8 letters and digits**, without ambiguous characters such as `0`, `O`, `1` or `I`. Lowercase input and pasted spaces or hyphens are accepted. It is saved per user under %LOCALAPPDATA%\MouseWithOutBorders and stays the same between launches. Existing 8-character codes are retained during this update. Upgrading from 32-character local keys generates a short local code; the parser also accepts 32-character keys, but **both apps must support the new two-way protocol**. Never publish a pairing code, diagnostic log or settings file.
 
@@ -83,7 +83,7 @@ Settings are stored in the signed-in user's LocalAppData folder; Windows account
 
 ## Troubleshooting
 
-- **Local mouse/trackpad stops after a crossing:** update **both PCs to 0.1.11**. This release separates Windows injection from capture and lets local movement cancel pending cursor placements. Press **Ctrl+Alt+F12** on the affected PC to stop sharing without restarting Windows (the shortcut must be available).
+- **Local mouse/trackpad stops after a crossing:** update **both PCs to 0.1.12**. This release separates Windows injection from capture and lets local movement cancel pending cursor placements. Press **Ctrl+Alt+F12** on the affected PC to stop sharing without restarting Windows (the shortcut must be available).
 
 - **Inconsistent control or focus:** run only one mouse-sharing application at a time. Another active MWB instance or PowerToys Mouse Without Borders can intercept the same pointer input and interfere with handoffs.
 - **Cannot connect:** confirm both PCs are on the same LAN, the receiver IP is correct, and Windows Firewall allows TCP 42187 on a private network.

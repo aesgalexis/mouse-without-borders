@@ -13,6 +13,7 @@ internal static class InputRecoveryTests
         TestOutputFailure();
         TestLocalMovementDuringPlacement();
         TestEmergencyStop();
+        TestRetainedInstanceObject();
         Console.WriteLine("PASS: native mouse output never runs on the capture thread; stalled output fails safely; local movement cancels pending placements; emergency stop works from the UI.");
     }
 
@@ -125,6 +126,36 @@ internal static class InputRecoveryTests
         Stopwatch wait = Stopwatch.StartNew();
         while (!condition() && wait.ElapsedMilliseconds < 3000) Thread.Sleep(5);
         Assert(condition(), message);
+    }
+
+    private static void TestRetainedInstanceObject()
+    {
+        string name = @"Local\MWB-instance-test-" + Guid.NewGuid().ToString("N");
+        using Mutex retainedObject = new(false, name);
+        using ManualResetEventSlim holding = new();
+        using ManualResetEventSlim release = new();
+        Thread owner = new(() =>
+        {
+            using AppInstanceGuard first = new(name);
+            Assert(first.Acquired, "An unowned retained mutex prevented startup.");
+            holding.Set();
+            release.Wait(3000);
+        });
+        owner.Start();
+        try
+        {
+            Assert(holding.Wait(2000), "The test instance did not acquire ownership.");
+            using AppInstanceGuard duplicate = new(name);
+            Assert(!duplicate.Acquired, "A live instance allowed a duplicate on another thread.");
+        }
+        finally { release.Set(); owner.Join(3000); }
+        using (AppInstanceGuard restarted = new(name))
+            Assert(restarted.Acquired, "The retained named object blocked restart after exit.");
+        Thread abandonedOwner = new(() => retainedObject.WaitOne());
+        abandonedOwner.Start(); abandonedOwner.Join(3000);
+        using AppInstanceGuard recovered = new(name);
+        Assert(recovered.Acquired, "Abandoned ownership blocked application recovery.");
+        Console.WriteLine("PASS: retained/abandoned instance objects allow restart while live ownership still prevents duplicates.");
     }
 
     private static void Assert(bool condition, string message)

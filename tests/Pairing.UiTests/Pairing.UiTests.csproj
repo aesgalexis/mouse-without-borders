@@ -8,6 +8,7 @@
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../../MouseWithOutBorders/AppInstanceGuard.cs" Link="AppInstanceGuard.cs" />
     <Compile Include="../../MouseWithOutBorders/MouseInputQueue.cs" Link="MouseInputQueue.cs" />
     <Compile Include="../../MouseWithOutBorders/MouseSharingService.cs" Link="MouseSharingService.cs" />
     <Compile Include="../../MouseWithOutBorders/WindowsMouseDesktop.cs" Link="WindowsMouseDesktop.cs" />

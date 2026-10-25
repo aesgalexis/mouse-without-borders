@@ -6,6 +6,11 @@ namespace MouseWithOutBorders;
 
 internal sealed class MainWindow : Form
 {
+    internal const int EmergencyHotkeyId = 0x4D57;
+    [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
+    private static extern bool RegisterHotKey(IntPtr window, int id, uint modifiers, uint key);
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool UnregisterHotKey(IntPtr window, int id);
     private static readonly Color Background = DarkTheme.Background;
     private static readonly Color Surface = DarkTheme.Surface;
     private static readonly Color Foreground = DarkTheme.Text;
@@ -159,6 +164,7 @@ internal sealed class MainWindow : Form
         foreach (Control control in new Control[] { _status, _logLink, _update, _updateStatus, _keys, _keyStatus, _elevate, _privilegeStatus })
             control.Top += 34;
         _tips.SetToolTip(_shareClipboard, "Enable on both PCs. Text up to 1 MiB; up to 20 files, 25 MiB total. Folders are excluded.");
+        _tips.SetToolTip(_toggle, "Emergency stop: Ctrl+Alt+F12 restores local control and disconnects sharing.");
 
         foreach (Label label in Controls.OfType<Label>())
         {
@@ -503,6 +509,9 @@ internal sealed class MainWindow : Form
         base.OnHandleCreated(e);
         int enabled = 1;
         DwmSetWindowAttribute(Handle, 20, ref enabled, sizeof(int));
+        // Register on the UI thread, independently of the mouse input loop.
+        if (!RegisterHotKey(Handle, EmergencyHotkeyId, 0x4003, 0x7B))
+            SettingsStore.Log("Could not register Ctrl+Alt+F12 emergency stop (shortcut already in use).");
     }
     [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
     private static extern int DwmSetWindowAttribute(IntPtr window, int attribute, ref int value, int size);
@@ -819,12 +828,24 @@ internal sealed class MainWindow : Form
 
     protected override void WndProc(ref Message message)
     {
+        if (message.Msg == 0x0312 && message.WParam == (IntPtr)EmergencyHotkeyId)
+        {
+            Stop();
+            SetStatus("Sharing stopped by Ctrl+Alt+F12. Local mouse and trackpad restored.");
+            return;
+        }
         if (InstallerExitMessage != 0 && (uint)message.Msg == InstallerExitMessage)
         {
             ExitApplication();
             return;
         }
         base.WndProc(ref message);
+    }
+
+    protected override void OnHandleDestroyed(EventArgs e)
+    {
+        UnregisterHotKey(Handle, EmergencyHotkeyId);
+        base.OnHandleDestroyed(e);
     }
 
     private void Stop()

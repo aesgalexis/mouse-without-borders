@@ -8,13 +8,20 @@ internal sealed class WindowsMouseDesktop : IMouseDesktop, IDisposable
 {
     private readonly Action<Action> _post;
     private readonly CursorMotionGuard _motion = new();
+    private readonly MouseInputQueue _output;
     private HiddenPointerWindow? _hiddenPointer;
     private Point _anchor;
     private bool _hideRequested, _refreshQueued, _disposed;
 
-    internal WindowsMouseDesktop(Action<Action> post) => _post = post;
+    internal WindowsMouseDesktop(Action<Action> post, Action<Exception>? error = null,
+        NativeMouse.InputSender? sender = null)
+    {
+        _post = post;
+        _output = new(ex => _post(() => (error ?? (failure => throw failure))(ex)), sender);
+    }
     public void BeginCursorTransition() => _motion.BeginTransition();
     internal bool PlacementPending => _motion.PlacementPending;
+    internal bool OutputPending => _output.Pending;
 
     internal bool SuppressInjectedMove(NativeMouse.HookInfo info)
     {
@@ -59,7 +66,17 @@ internal sealed class WindowsMouseDesktop : IMouseDesktop, IDisposable
     // cannot leave a hidden window or local-input gate stuck indefinitely.
     internal void RecoverVisibility()
     {
+        _output.CheckHealth();
         if (!_disposed && !_hideRequested && !PlacementPending) RevealPointer();
+    }
+
+    internal bool SuppressPhysicalMove(bool forwarding)
+    {
+        if (!PlacementPending) return false;
+        if (forwarding) return true;
+        _motion.BeginTransition();
+        SetPointerHidden(false);
+        return false;
     }
 
     private void RevealPointer()
@@ -72,13 +89,14 @@ internal sealed class WindowsMouseDesktop : IMouseDesktop, IDisposable
     public Rectangle Bounds => SystemInformation.VirtualScreen;
     public Point Cursor => NativeMouse.GetCursorPos(out var position)
         ? new Point(position.X, position.Y) : throw new Win32Exception("Cannot read the mouse position.");
-    public void MoveCursor(Point position) => _motion.MoveCursor(position, Bounds);
-    public void Inject(uint flags, int data) => NativeMouse.Inject(flags, data);
+    public void MoveCursor(Point position) => _motion.MoveCursor(position, Bounds, _output.Enqueue);
+    public void Inject(uint flags, int data) => NativeMouse.Inject(flags, data, _output.Enqueue);
 
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
+        _output.Dispose();
         RevealPointer();
     }
 }

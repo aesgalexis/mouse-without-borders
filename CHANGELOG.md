@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.11 — Local mouse recovery after handoff
+
+- Move native mouse injection to a bounded output worker, keeping the capture thread available while Windows delivers injected events. Preserve queued button releases during normal shutdown.
+- Let a local mouse or trackpad cancel pending cursor placements as soon as the PC is local or receiving; reject late placements after local recovery.
+- Detect stalled/rejected native output and stop the affected session instead of keeping local input suppressed.
+- Add **Ctrl+Alt+F12** to disconnect sharing from the independent UI thread, including while the window is hidden.
+- Add regressions for blocked output, separate injection/capture threads, release ordering, local recovery during pending placement and emergency stop. Pairing and clipboard remain compatible; update both PCs for the recovery fixes.
+
 ## 0.1.10 — Clipboard sharing and input consistency
 
 - Suppress remapped source keys consistently, including printable/OEM keys with modifiers and repeats. Reserve key state before injection, keep sources suppressed on native failures and prevent reentrant cleanup/configuration from leaving stale or stuck keys.

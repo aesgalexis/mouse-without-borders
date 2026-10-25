@@ -12,6 +12,28 @@ This file distinguishes automated checks from hardware testing. Do not claim a f
 
 CI checks only what it runs. A successful build does not prove smooth mouse interaction.
 
+## Version 0.1.11 handoff recovery (2026-10-25)
+
+The reported failure is loss of local mouse/trackpad control after leaving the
+receiving PC. Native injection previously ran on the same thread as the global
+mouse hook, and pending placements gated all physical movement. Native mouse
+output now has its own bounded worker; local/receiving physical movement retires
+pending placement tags, and Ctrl+Alt+F12 stops sharing from the UI thread.
+
+Local Release compilation passes. The standard UI suite and new input-recovery
+suite pass, including a sender deliberately blocked waiting for capture-thread
+progress, queued down/up ordering through normal shutdown, output rejection and
+timeout, cancellation of stale placements by local movement, and emergency stop.
+Transport/ownership, updater, keyboard, clipboard transfer and clipboard service
+suites pass. Run fixed-port transport/clipboard suites sequentially.
+
+The optional native receiver/focus replay did **not** pass in this local session:
+Windows output stalled and the new watchdog stopped the sharing service. This is
+recorded as a remaining native validation limitation, not a successful handoff
+test. Physical acceptance must install 0.1.11 on both PCs, repeat crossings and
+returns from each local mouse/trackpad, and verify local recovery and the emergency
+shortcut with MWB hidden. No third-party application is identified as the cause.
+
 ## Version 0.1.10 clipboard and interface verification (2026-10-24)
 
 The Windows Release build and self-contained executable compile successfully. The cleaned

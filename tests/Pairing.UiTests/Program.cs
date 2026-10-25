@@ -6,6 +6,7 @@ internal static class Program
     private static void Main(string[] args)
     {
         ApplicationConfiguration.Initialize();
+        if (args.Contains("--input-recovery-only", StringComparer.Ordinal)) { InputRecoveryTests.Run(); return; }
         if (args.Contains("--robustness-only", StringComparer.Ordinal)) { RobustnessUiTests.Run(); return; }
         if (args.Contains("--native-robustness-only", StringComparer.Ordinal)) { RobustnessUiTests.RunNative(); return; }
         if (args.Contains("--native-return-only", StringComparer.Ordinal)) { CursorReturnUiTests.RunNative(); return; }
@@ -83,6 +84,7 @@ internal static class Program
         StartupUiTests.Run();
         ElevationUiTests.Run();
         RobustnessUiTests.Run();
+        InputRecoveryTests.Run();
         KeyboardUiTests.Run(args.Length == 2 && args[0] == "--screenshots" ? args[1] : null);
         ClipboardUiTests.Run();
         if (args.Contains("--native-keyboard", StringComparer.Ordinal)) KeyboardUiTests.RunNative();

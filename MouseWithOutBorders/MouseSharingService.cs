@@ -27,7 +27,7 @@ internal sealed class MouseSharingService : IDisposable
                 using Control dispatch = new();
                 _ = dispatch.Handle;
                 _dispatch = dispatch;
-                using WindowsMouseDesktop desktop = new(action => Post(action));
+                using WindowsMouseDesktop desktop = new(action => Post(action), Fail);
                 _desktop = desktop;
                 // Install capture before taking the held-state snapshot, so a
                 // release during startup cannot fall into an unobserved gap.
@@ -54,7 +54,7 @@ internal sealed class MouseSharingService : IDisposable
                     // Keep the hook installed until the final restoration has
                     // reached it; pending old parking moves remain rejectable.
                     long deadline = Environment.TickCount64 + CursorMotionGuard.PlacementTimeoutMilliseconds;
-                    while (desktop.PlacementPending && Environment.TickCount64 < deadline)
+                    while ((desktop.PlacementPending || desktop.OutputPending) && Environment.TickCount64 < deadline)
                     {
                         Application.DoEvents();
                         Thread.Sleep(1);
@@ -127,7 +127,10 @@ internal sealed class MouseSharingService : IDisposable
         {
             if (message == NativeMouse.WM_MOUSEMOVE)
             {
-                if (_desktop!.PlacementPending) return true;
+                // Pending remote/parking placement must never lock a local
+                // mouse or trackpad. Local movement retires queued placement
+                // tags before ownership is reclaimed.
+                if (_desktop!.SuppressPhysicalMove(session.IsRemote)) return true;
                 if (!NativeMouse.GetCursorPos(out var previous)) return session.IsRemote;
                 return session.PhysicalMove(new Point(previous.X, previous.Y), new Point(info.Position.X, info.Position.Y));
             }

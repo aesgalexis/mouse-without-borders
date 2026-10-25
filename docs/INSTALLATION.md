@@ -2,14 +2,14 @@
 
 This Windows desktop application shares mouse input and an optional clipboard between two PCs, and can remap keys locally. The same executable runs on both PCs; each PC chooses its own connection role.
 
-The current release is **0.1.10**, with optional text/file clipboard sharing, remapped-key suppression fixes, concise English controls and desktop shortcut creation unchecked during updates. It includes the earlier receiver responsiveness, focus and input-recovery fixes, automatic startup/reconnection and administrator restart. Every mouse and touchpad on either PC can cross after pairing once. Clipboard sharing requires this version on both PCs; older two-way versions retain mouse compatibility. The 0.1.2 protocol is incompatible.
+The current release is **0.1.11**, with local mouse/trackpad recovery after handoff and a **Ctrl+Alt+F12** emergency stop. It retains optional text/file clipboard sharing, remapped-key suppression fixes, concise English controls and desktop shortcut creation unchecked during updates. It includes the earlier receiver responsiveness, focus and input-recovery fixes, automatic startup/reconnection and administrator restart. Every mouse and touchpad on either PC can cross after pairing once. Clipboard sharing requires this version on both PCs; older two-way versions retain mouse compatibility. The 0.1.2 protocol is incompatible.
 
 **Status:** Windows x64 preview. Installation and transport tests run in GitHub Actions. Real pointer switching must still be checked on two physical machines. The current release is unsigned and Windows SmartScreen may warn before installation.
 
 ## Option A — easiest: Setup.exe
 
-1. Open the [v0.1.10 release](https://github.com/aesgalexis/mouse-without-borders/releases/tag/v0.1.10).
-2. Download [MouseWithOutBorders-0.1.10-Setup.exe](https://github.com/aesgalexis/mouse-without-borders/releases/download/v0.1.10/MouseWithOutBorders-0.1.10-Setup.exe) and use it on **both PCs**.
+1. Open the [v0.1.11 release](https://github.com/aesgalexis/mouse-without-borders/releases/tag/v0.1.11).
+2. Download [MouseWithOutBorders-0.1.11-Setup.exe](https://github.com/aesgalexis/mouse-without-borders/releases/download/v0.1.11/MouseWithOutBorders-0.1.11-Setup.exe) and use it on **both PCs**.
 3. Run it on each PC. Installation is for the current Windows user, without an administrator password. You can also use the portable ZIP without installing anything.
 4. On either PC: open Mouse, with out borders; click **Allow connection**; click **Start receiving**.
 5. Note this PC's local IPv4 address and 8-character pairing code.
@@ -57,13 +57,13 @@ Upgrading an existing receiver replaces its old 32-character key with a saved 8-
 
 ## Option B — assisted install (Windows PowerShell)
 
-This script defaults to the published **0.1.10** release.
+This script defaults to the published **0.1.11** release.
 
 Download scripts/install.ps1 from the repository, inspect it, then run from PowerShell in the folder where you saved it:
 
     .\install.ps1
 
-This downloads release 0.1.10, verifies the SHA-256 manifest shipped with the release, installs without admin rights, then opens the application.
+This downloads release 0.1.11, verifies the SHA-256 manifest shipped with the release, installs without admin rights, then opens the application.
 
 On the **receiving PC**, use:
 

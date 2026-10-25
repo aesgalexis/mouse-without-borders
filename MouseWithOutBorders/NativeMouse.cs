@@ -112,7 +112,7 @@ internal static class NativeMouse
     }
 
     [DllImport("user32.dll", SetLastError = true)]
-    private static extern uint SendInput(uint count, [In] Input[] input, int size);
+    internal static extern uint SendInput(uint count, [In] Input[] input, int size);
 
     // Windows can synthesize pointer events for touchpads and accessibility
     // devices. Ignore only our own input, rather than every injected event.

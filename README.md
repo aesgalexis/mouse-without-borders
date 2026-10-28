@@ -1,110 +1,100 @@
 # Mouse, with out borders
 
-**All your mice and touchpads, two Windows computers.** Pair the PCs once and use the pointing devices attached to either PC across the shared screen edge.
+MWB is a free Windows application for sharing mouse and touchpad input between two PCs on your local network. Pair the computers once, then move the pointer across the left or right screen edge to control the other PC.
 
-- Cross the **left or right edge** using a mouse or touchpad on either PC.
-- Return across the shared edge, or move a local pointing device to reclaim that PC.
-- Hide the inactive parked pointer, restoring it when returning or using a local device.
-- Local key-to-key remapping with input/output selectors. Keyboard input is not shared over the network.
-- Optional text and file clipboard sharing (details below).
-- No account or cloud service required.
-- Per-user Windows installer and uninstaller; also available as a portable executable.
-- Tray icon, option to launch with Windows, option to connect automatically, saved device pairing.
-- **Check & install updates** button with GitHub release downloads, SHA-256 verification and automatic app restart (from 0.1.3).
-- Authenticated connection with heartbeat detection and automatic reconnection after an established connection drops.
+It works with pointing devices attached to either computer and requires no account or cloud service.
 
-**Project status: preview.** Windows compilation is automated; real two-PC interaction still needs hardware testing. This is not a production/stability guarantee.
+**[Download for Windows x64](https://github.com/aesgalexis/mouse-without-borders/releases)**
 
-## Install on both PCs
+## Features
 
-The current release is **0.1.13**. Opening MWB again brings the existing window to the foreground, including when hidden or minimized. It includes local mouse/trackpad recovery after handoff and a **Ctrl+Alt+F12** emergency stop. It retains optional text/file clipboard sharing, reliable suppression of remapped keys, a concise English interface and desktop shortcut creation disabled by default during updates. It includes the earlier receiver responsiveness, focus and input-recovery fixes, automatic startup/reconnection and administrator restart. Install it on both PCs for clipboard sharing. Older two-way releases retain mouse compatibility; 0.1.2 uses the incompatible one-way protocol.
+- Use mice and touchpads on either PC to control both computers.
+- Optionally share plain text and files through the clipboard.
+- Remap keys locally on each PC. Keyboard input is not shared between computers.
+- Save pairing details, start with Windows and reconnect automatically.
+- Install for the current user, or run the portable executable.
 
-1. Download [MouseWithOutBorders-0.1.13-Setup.exe](https://github.com/aesgalexis/mouse-without-borders/releases/download/v0.1.13/MouseWithOutBorders-0.1.13-Setup.exe) from the [v0.1.13 release](https://github.com/aesgalexis/mouse-without-borders/releases/tag/v0.1.13). A portable ZIP and SHA-256 checksums are also available there.
-2. Run the setup on **both Windows 10/11 x64 PCs**. No administrator rights are needed to install for the current user.
-3. On either PC, select the receiving role, then **Start receiving**. Note the displayed local IP and **8-character pairing code**.
-4. On the other PC, click **Connect to other PC**, enter that IP and code, and select which edge leads to the first PC. Click **Connect mouse**.
-5. Use **any mouse or touchpad on either PC** to cross the shared edge. The opposite edge is configured automatically on the listening PC. Move back across the shared edge to return. Moving or clicking a local device takes that PC back from a remote mouse.
+## Getting started
 
-For an assisted Windows installation or rollback, see [installation instructions](docs/INSTALLATION.md). For automated checks vs. pending two-PC tests, see [verification record](docs/TESTING.md). Changes are tracked in [CHANGELOG.md](CHANGELOG.md).
+You need two Windows 10/11 x64 PCs on the same trusted private network.
 
-The assisted `scripts/install.ps1` script defaults to 0.1.13. It verifies release SHA-256 checksums and installs only on the current PC; `-Receiver` adds the optional private-network firewall rule on the PC accepting the connection.
+1. Download the **Setup.exe** from the [releases page](https://github.com/aesgalexis/mouse-without-borders/releases) and install it on both PCs. Installation does not require administrator rights. A portable ZIP is also available.
+2. On the first PC, select **Allow connection**, then **Start receiving**. Note its local IP address and 8-character pairing code.
+3. On the second PC, select **Connect to other PC**. Enter the first PC's IP address and pairing code, choose the screen edge that leads to it, then select **Connect mouse**.
+4. Move a mouse or touchpad across the shared edge to control the other PC. Cross back to return, or use a pointing device attached to that PC to take control locally.
 
-The pairing code has **8 letters and digits**, without ambiguous characters such as `0`, `O`, `1` or `I`. Lowercase input and pasted spaces or hyphens are accepted. It is saved per user under %LOCALAPPDATA%\MouseWithOutBorders and stays the same between launches. Existing 8-character codes are retained during this update. Upgrading from 32-character local keys generates a short local code; the parser also accepts 32-character keys, but **both apps must support the new two-way protocol**. Never publish a pairing code, diagnostic log or settings file.
+If Windows Firewall prompts you, allow MWB on private networks. The receiving PC must be reachable on TCP port **42187**. See the [installation guide](docs/INSTALLATION.md) for firewall setup, assisted installation and uninstall instructions.
 
-The app runs in the **notification area** by default when its window is closed. Use its tray menu's **Exit** to quit, or disable **Close to notification area**. **Start with Windows** and **Connect automatically** are enabled by default. After the first launch, MWB starts in the notification area when you sign in and restores its saved connection/listening role. A connecting PC uses the saved IP and pairing code and keeps retrying if the other PC is not ready yet; incomplete connection details stay editable. Your preferences are retained when upgrading.
+## Everyday use
 
-From version **0.1.3**, click **Check & install updates** at the bottom of the window
-to download and install the newest higher version from this repository's GitHub
-Releases, including published previews. The app shows download progress, verifies
-the release's SHA-256 manifest, then starts Setup with installation progress and
-exits. Setup reopens the app after a successful update and retains pairing and
-preferences. It never restarts Windows. Updates run only when you click the button.
-If the check, download or verification fails, the app stays open and you can retry.
-When run from a portable copy, this action installs the per-user application;
-it does not replace the portable executable. Older versions need one manual
-Setup installation to get the button.
+- **Opening and closing:** closing the window keeps MWB running in the notification area by default. Open MWB again from its shortcut or double-click the tray icon to show the window. Choose **Exit** from the tray menu to quit.
+- **Startup:** **Start with Windows** and **Connect automatically** are enabled by default. You can turn either option off; preferences and pairing details are retained across updates.
+- **Stopping sharing:** press **Ctrl+Alt+F12**, or choose **Stop mouse sharing** from the tray menu. The shortcut also works while the window is hidden, provided Windows has not assigned it to another application.
+- **Updates:** select **Check & install updates** to check GitHub Releases, including previews. MWB verifies the download's SHA-256 checksum before installing and restarting. Updates are checked only on request. Updating a portable copy installs the per-user application rather than replacing the portable executable.
 
-## Local keyboard remapping
+## Optional features
 
-Open **Remap keys...** from the main window or tray. Select the input and output keys, click **Add**, then **Save**. Mappings are disabled by default, saved per user, and run while MWB is open independently of the mouse connection. The editor pauses remapping; Cancel restores the previous configuration. **Start with Windows** resumes saved mappings after sign-in. Elevated applications require MWB at the same privilege level; secure screens and firmware-only keys are not remapped. Keyboard events are never transmitted or logged.
+### Clipboard sharing
 
-## Clipboard sharing
+Enable **Share clipboard** on both PCs to share new copies of plain text and files in either direction. This option is disabled by default; enabling it does not send existing clipboard content.
 
-Available from **0.1.10**. Enable **Share clipboard** on both PCs. New copies of plain text and files then become available to paste on the paired PC in either direction. Enabling or reconnecting does not send existing clipboard content.
+- Plain text: up to **1 MiB**. Rich formatting and images are not supported.
+- Files: up to **20 regular files** and **25 MiB total per copy**. Folders and links are not supported. Originals are never moved.
 
-- Plain text: up to **1 MiB** encoded as UTF-8. Rich formatting and images are excluded.
-- Files: up to **20 regular files** and **25 MiB total per copy**. Folders, links and files inside linked folders are excluded. Received files are copies; originals are never moved.
-- Transfers use encrypted, acknowledged chunks and yield to mouse traffic. A new copy, disabling the option or disconnecting cancels unfinished work.
-- Received files are verified before appearing in the clipboard. They remain available after disconnecting or exiting MWB. The cache under `%LOCALAPPDATA%\MouseWithOutBorders\Clipboard` is limited to **64 MiB**; older batches are pruned, while the newest completed batch is retained for pasting.
+Clipboard transfers are encrypted and verified before becoming available to paste. Received files remain available after disconnecting or exiting MWB.
 
-Both peers must support clipboard sharing and have it enabled. Older releases continue to share the mouse. Desktop shortcut creation is unchecked by default, including during updates; existing shortcuts are preserved.
+### Local key remapping
 
-## Network and security
+Open **Remap keys...** from the main window or tray menu. Select the input and output keys, choose **Add**, then **Save**. Remapping is disabled by default and works locally while MWB is running, independently of the mouse connection. Keyboard events are never sent to the other PC.
 
-Both PCs must be on the same **trusted private network** with TCP port **42187** reachable on the receiver.
+## Status and limitations
 
-If Windows Firewall blocks the receiver, allow the application on **private** networks when prompted. To add a rule manually, run PowerShell as administrator on the receiving PC:
+MWB is currently a **preview**. Automated Windows build, transport, interface and installer checks run in GitHub Actions. Physical testing across different mice, touchpads and two-PC setups remains incomplete; see the [verification record](docs/TESTING.md).
 
-    New-NetFirewallRule -DisplayName "Mouse With Out Borders" -Direction Inbound -Action Allow -Profile Private -Protocol TCP -LocalPort 42187 -Program "$env:LOCALAPPDATA\Programs\MouseWithOutBorders\MouseWithOutBorders.exe"
+- Supports exactly two Windows 10/11 x64 PCs, arranged to the left and right.
+- Uses the outer edges of the Windows virtual desktop. Complex multi-monitor arrangements need further testing.
+- Both PCs must have an active, unlocked user session. UAC prompts and secure desktops require a local device.
+- Run one mouse-sharing application at a time to avoid competing input hooks.
 
-The connection requires matching pairing keys, uses challenge-based HMAC authentication and verifies every packet. Mouse packets are **not encrypted**. Clipboard transfers additionally use session-bound AES-GCM encryption. Use a trusted private network; never open or port-forward TCP 42187 to the internet. The listener binds to the local PC's network interfaces; use Windows Firewall to limit access.
+## Network and privacy
 
-Settings are stored in the signed-in user's LocalAppData folder; Windows account security protects access to those files. No cloud service is used.
+Use MWB only on a trusted private network. Connections use pairing-key authentication and packet verification. **Mouse traffic is not encrypted**; clipboard payloads use AES-GCM encryption. Do not expose or forward TCP port 42187 to the internet.
 
-## Supported / limits
-
-- Exactly **two PCs**, Windows 10/11 x64, with interactive user sessions.
-- Left/right screen arrangement; the outer edge is based on the Windows virtual desktop, so other monitors on a PC are taken into account. Complex non-rectangular display arrangements need additional testing.
-- Windows mouse/touchpad pointer movement, vertical/horizontal wheel, primary and X buttons are supported on both PCs.
-- A handoff waits for locally held buttons to be released so a local click/drag is not split between desktops.
-- Windows security boundaries (UAC prompts, locked/secure desktop, elevated applications) can restrict input injection.
-- Some mice, DPI settings, remote sessions, exclusive-input games, network policies and antivirus software may behave differently. Physical two-PC testing is still necessary.
-- The origin PC releases its cursor on disconnect or heartbeat timeout (normally within ~5 seconds).
+Settings and diagnostic logs are stored locally under `%LOCALAPPDATA%\MouseWithOutBorders`. Keep pairing codes, settings files and diagnostic logs private when reporting problems.
 
 ## Troubleshooting
 
-- **Local mouse/trackpad stops after a crossing:** update **both PCs to 0.1.13**. This release separates Windows injection from capture and lets local movement cancel pending cursor placements. Press **Ctrl+Alt+F12** on the affected PC to stop sharing without restarting Windows (the shortcut must be available).
+- **Cannot connect:** check the receiving PC's LAN IP, pairing code, listening status and private-network firewall rules.
+- **Window is hidden:** open MWB again from its shortcut, or double-click the notification-area icon.
+- **Local pointer is stuck:** press **Ctrl+Alt+F12** to stop sharing and restore local control.
+- **Cannot control an elevated application:** use **Restart as administrator...** in MWB on the PC displaying that application, then approve UAC locally. Administrator mode applies to the current session.
 
-- **Inconsistent control or focus:** run only one mouse-sharing application at a time. Another active MWB instance or PowerToys Mouse Without Borders can intercept the same pointer input and interfere with handoffs.
-- **Cannot connect:** confirm both PCs are on the same LAN, the receiver IP is correct, and Windows Firewall allows TCP 42187 on a private network.
-- **Both PCs show a code:** on either PC, click **Connect to other PC**. Enter the listening PC's local IP and code, and click **Connect mouse**.
-- **Update both PCs:** two-way input requires the new version on both computers; 0.1.2 cannot use this protocol.
-- **Pairing rejected:** enter the receiving PC's current 8-character code again, especially after an upgrade.
-- **Cursor does not cross:** make sure both apps report connected, and move through the *outer* edge selected on the controlling PC.
-- **App disappeared:** check the Windows notification area (system tray); double-click its icon to reopen.
-- **Task Manager won't highlight Close/Minimize or accept remote clicks:** Windows can block MWB's injected input when the target window has higher privileges (UIPI). On the PC displaying Task Manager, use **Restart as administrator...** in MWB or its tray menu, and approve UAC with that PC's local mouse/touchpad. MWB saves pairing and resumes an active connection after the restart. Cancelling UAC leaves the original connection running. Administrator mode applies to this session; normal Windows startup remains unelevated. With an older MWB version, choose **Exit** in its tray menu, then right-click its shortcut and choose **Run as administrator**. UAC prompts and locked/secure desktops still require a local device.
-- **Diagnostics:** choose **Diagnostic log**. Logs are under %LOCALAPPDATA%\MouseWithOutBorders and rotate at approximately 512 KB.
+Use **Diagnostic log** in the main window to inspect connection and input errors.
 
-## Development
+## Building from source
 
-Requires **Windows**, .NET 8 SDK, and (to build the installer locally) [Inno Setup 6](https://jrsoftware.org/isinfo.php).
+Requires Windows and the **.NET 8 SDK**.
 
-    dotnet build MouseWithOutBorders/MouseWithOutBorders.csproj -c Release
-    dotnet publish MouseWithOutBorders/MouseWithOutBorders.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o dist/app
-    & ([IO.Path]::Combine([Environment]::GetFolderPath('ProgramFilesX86'), 'Inno Setup 6', 'ISCC.exe')) installer\MouseWithOutBorders.iss
+```powershell
+dotnet build MouseWithOutBorders/MouseWithOutBorders.csproj -c Release
+```
 
-The icon is generated automatically on Windows by the MSBuild project target. CI on windows-latest generates the icon, builds and publishes the portable ZIP and installable EXE as build artifacts. After checks pass on main, a new project version publishes a preview release. Version tags also build and publish a GitHub Release.
+To publish a self-contained executable:
 
-The assisted installer prompts for Windows admin approval only if `-Receiver` is selected to add a private-network firewall rule. The application installs in the current user's %LOCALAPPDATA%\Programs directory and runs without elevation by default; its optional **Restart as administrator...** action requests UAC approval for the current session. Uninstall retains personal settings by design; these can be removed from LocalAppData manually.
+```powershell
+dotnet publish MouseWithOutBorders/MouseWithOutBorders.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o dist/app
+```
 
-Clipboard tests use isolated data and fake clipboard adapters; they do not modify the user's clipboard.
+To build the installer, install [Inno Setup 6](https://jrsoftware.org/isinfo.php), then run:
+
+```powershell
+& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer/MouseWithOutBorders.iss
+```
+
+The application icon is generated during the Windows build. The [GitHub Actions workflow](.github/workflows/build.yml) contains the automated test and release commands. Clipboard tests use isolated data and do not modify your clipboard.
+
+## Documentation
+
+- [Installation, updates and uninstall](docs/INSTALLATION.md)
+- [Testing and known validation limits](docs/TESTING.md)
+- [Changelog](CHANGELOG.md)

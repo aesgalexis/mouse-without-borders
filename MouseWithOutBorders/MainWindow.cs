@@ -507,6 +507,7 @@ internal sealed class MainWindow : Form
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
+        AppInstanceActivation.Register(Handle);
         int enabled = 1;
         DwmSetWindowAttribute(Handle, 20, ref enabled, sizeof(int));
         // Register on the UI thread, independently of the mouse input loop.
@@ -828,6 +829,11 @@ internal sealed class MainWindow : Form
 
     protected override void WndProc(ref Message message)
     {
+        if (AppInstanceActivation.Message != 0 && (uint)message.Msg == AppInstanceActivation.Message)
+        {
+            if (!_shuttingDown) ShowWindow();
+            return;
+        }
         if (message.Msg == 0x0312 && message.WParam == (IntPtr)EmergencyHotkeyId)
         {
             Stop();
@@ -844,6 +850,7 @@ internal sealed class MainWindow : Form
 
     protected override void OnHandleDestroyed(EventArgs e)
     {
+        AppInstanceActivation.Unregister(Handle);
         UnregisterHotKey(Handle, EmergencyHotkeyId);
         base.OnHandleDestroyed(e);
     }

@@ -12,6 +12,16 @@ This file distinguishes automated checks from hardware testing. Do not claim a f
 
 CI checks only what it runs. A successful build does not prove smooth mouse interaction.
 
+## Version 0.1.13 shortcut activation (2026-10-28)
+
+The Release build and complete Windows UI suite pass. Activation-message
+regressions restore the existing window from hidden, minimized and visible
+states while preserving its active listener. The installer exit request still
+closes the hidden window. A normal shortcut delegates foreground permission to
+the existing process; its main window accepts the activation message even when
+running elevated. A bounded retry covers the interval between mutex acquisition
+and window creation. No mouse, clipboard or keyboard behavior changes.
+
 ## Version 0.1.11 handoff recovery (2026-10-25)
 
 The reported failure is loss of local mouse/trackpad control after leaving the

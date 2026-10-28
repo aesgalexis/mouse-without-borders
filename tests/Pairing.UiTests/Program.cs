@@ -62,10 +62,31 @@ internal static class Program
             toggle.Text != "Connect mouse")
             throw new Exception("Enter-code action must stop listening and switch to the connecting role.");
 
+        receiver.Checked = true;
+        toggle.PerformClick();
         Find<CheckBox>(window, "MinimizeToTray").Checked = true;
         window.Close();
         if (window.IsDisposed || window.Visible)
             throw new Exception("Closing normally should keep the app running in the notification area.");
+        uint activationMessage = AppInstanceActivation.Message;
+        foreach (bool minimized in new[] { false, true, false })
+        {
+            if (minimized) window.WindowState = FormWindowState.Minimized;
+            if (activationMessage == 0 || !PostMessage(window.Handle, activationMessage, IntPtr.Zero, IntPtr.Zero))
+                throw new Exception("Could not send a second-instance activation request.");
+            DateTime activationDeadline = DateTime.UtcNow.AddSeconds(5);
+            do
+            {
+                Application.DoEvents();
+                Thread.Sleep(10);
+            } while ((!window.Visible || window.WindowState != FormWindowState.Normal) &&
+                DateTime.UtcNow < activationDeadline);
+            if (!window.Visible || window.WindowState != FormWindowState.Normal || window.IsDisposed)
+                throw new Exception("A second launch must restore the existing hidden/minimized/visible window.");
+            if (receiver.Enabled || toggle.Text != "Disconnect / Stop")
+                throw new Exception("Reopening the window must preserve the active listener.");
+        }
+        window.Close();
         uint exitMessage = NativeMouse.RegisterWindowMessage("MouseWithOutBorders.ExitForUpdate.79DBA1BD");
         if (exitMessage == 0 || !PostMessage(window.Handle, exitMessage, IntPtr.Zero, IntPtr.Zero))
             throw new Exception("Could not send the installer's exit request.");
@@ -80,6 +101,7 @@ internal static class Program
         if (saves == 0) throw new Exception("Pairing preferences were not saved.");
         Console.WriteLine("PASS: receiver, enter-code action, editable code, role persistence and switching while listening.");
         Console.WriteLine("PASS: installer exit request closes MWB from the notification area.");
+        Console.WriteLine("PASS: second-instance requests restore the same hidden, minimized and visible window.");
         UpdaterUiTests.Run();
         StartupUiTests.Run();
         ElevationUiTests.Run();

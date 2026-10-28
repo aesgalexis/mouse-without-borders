@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.13 — Reopen the running application from its shortcut
+
+- Launching MWB again restores and activates the existing window, using the same action as the notification-area icon, instead of displaying an already-running message.
+- Handle hidden and minimized windows, a second launch during startup, and reopening an elevated instance from a normal shortcut. Keep a single running instance.
+
 ## 0.1.12 — Update and restart after a terminated instance
 
 - Include all 0.1.11 local-input recovery changes.

@@ -15,8 +15,8 @@ internal static class Program
         using AppInstanceGuard singleton = new();
         if (!singleton.Acquired)
         {
-            MessageBox.Show("Mouse, with out borders is already running.\nCheck the Windows notification area.",
-                "Mouse, with out borders", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            if (!AppInstanceActivation.RequestActivation())
+                SettingsStore.Log("Could not show the existing application window.");
             return;
         }
 

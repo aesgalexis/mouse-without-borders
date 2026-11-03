@@ -30,7 +30,7 @@ If Windows Firewall prompts you, allow MWB on private networks. The receiving PC
 - **Opening and closing:** closing the window keeps MWB running in the notification area by default. Open MWB again from its shortcut or double-click the tray icon to show the window. Choose **Exit** from the tray menu to quit.
 - **Startup:** **Start with Windows** and **Connect automatically** are enabled by default. You can turn either option off; preferences and pairing details are retained across updates.
 - **Stopping sharing:** press **Ctrl+Alt+F12**, or choose **Stop mouse sharing** from the tray menu. The shortcut also works while the window is hidden, provided Windows has not assigned it to another application.
-- **Updates:** select **Check & install updates** to check GitHub Releases, including previews. MWB verifies the download's SHA-256 checksum before installing and restarting. Updates are checked only on request. Updating a portable copy installs the per-user application rather than replacing the portable executable.
+- **Updates:** select **Check & install updates** from the main window or the tray icon's right-click menu to check GitHub Releases, including previews. The tray action opens the window to show progress and results. MWB verifies the download's SHA-256 checksum before installing and restarting. Updates are checked only on request. Updating a portable copy installs the per-user application rather than replacing the portable executable.
 
 ## Optional features
 

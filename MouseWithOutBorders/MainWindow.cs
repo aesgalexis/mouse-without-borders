@@ -95,6 +95,7 @@ internal sealed class MainWindow : Form
     };
 
     private readonly NotifyIcon _tray;
+    private readonly ToolStripMenuItem _trayUpdate = new("Check && install updates") { Name = "TrayCheckForUpdates" };
     private readonly Icon _appIcon = AppBranding.LoadIcon(SystemInformation.IconSize);
     private readonly Icon _trayIcon = AppBranding.LoadIcon(SystemInformation.SmallIconSize);
     private readonly PictureBox _brand = new() { Name = "AppLogo", Left = 28, Top = 24, Width = 48, Height = 48, SizeMode = PictureBoxSizeMode.Zoom };
@@ -259,6 +260,12 @@ internal sealed class MainWindow : Form
         trayMenu.Items.Add("Open", null, (_, _) => ShowWindow());
         trayMenu.Items.Add("Stop mouse sharing", null, (_, _) => Stop());
         trayMenu.Items.Add("Remap keys...", null, (_, _) => EditKeyMappings());
+        _trayUpdate.Click += async (_, _) =>
+        {
+            ShowWindow();
+            await UpdateApplicationAsync();
+        };
+        trayMenu.Items.Add(_trayUpdate);
         trayMenu.Items.Add("Restart as administrator...", null, (_, _) => RestartAsAdministrator()).Enabled = !isElevated;
         trayMenu.Items.Add(new ToolStripSeparator());
         trayMenu.Items.Add("Exit", null, (_, _) => ExitApplication());
@@ -365,6 +372,7 @@ internal sealed class MainWindow : Form
         using CancellationTokenSource lifetime = new(TimeSpan.FromMinutes(15));
         _updateCts = lifetime;
         _update.Enabled = false;
+        _trayUpdate.Enabled = false;
         _updateStatus.Text = "Checking GitHub for updates...";
         try
         {
@@ -398,7 +406,7 @@ internal sealed class MainWindow : Form
         finally
         {
             _updateCts = null;
-            if (!_shuttingDown) _update.Enabled = true;
+            if (!_shuttingDown) _update.Enabled = _trayUpdate.Enabled = true;
         }
     }
 

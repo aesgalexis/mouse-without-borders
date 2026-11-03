@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.17 — Check and install updates from the tray
+
+- Add **Check & install updates** to the notification icon's right-click menu. It opens the existing window to show checking, download progress and results.
+- Share the updater and busy state with the main-window button, preventing duplicate requests from either entry point. Cover hidden-window launch, no-update and failure recovery, successful installation and cancellation in the UI suite.
+
 ## 0.1.16 — Confirm global hiding at the exit before central parking
 
 - Cover the exit point and central anchor with two small regions of one non-activating window. Establish cursor ownership at the exit and require the transparent image in global `GetCursorInfo` before submitting the centre move.

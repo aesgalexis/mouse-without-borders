@@ -8,25 +8,32 @@ internal static class UpdaterUiTests
         using (MainWindow window = Window(updater))
         {
             Button button = Find<Button>(window, "CheckForUpdates");
+            ToolStripMenuItem trayUpdate = TrayUpdate(window);
             Label status = Find<Label>(window, "UpdateStatus");
             string connectionStatus = Find<Label>(window, "ConnectionStatus").Text;
             Assert(button.Visible && button.Enabled && updater.Checks == 0 && status.Text.Contains("0.1.3"),
                 "Show the current version and manual update button without contacting GitHub at startup.");
             TaskCompletionSource<AppRelease?> pending = new();
             updater.Check = token => pending.Task.WaitAsync(token);
+            Find<CheckBox>(window, "MinimizeToTray").Checked = true;
+            window.Close();
+            Assert(!window.Visible && trayUpdate.Enabled, "The tray update action must remain available while the window is hidden.");
+            trayUpdate.PerformClick();
+            Assert(window.Visible && window.WindowState == FormWindowState.Normal,
+                "Updating from the tray must show the window with progress and results.");
             button.PerformClick();
-            button.PerformClick();
-            Assert(!button.Enabled && updater.Checks == 1, "Disable duplicate update requests.");
+            trayUpdate.PerformClick();
+            Assert(!button.Enabled && !trayUpdate.Enabled && updater.Checks == 1, "Disable duplicate update requests from both entry points.");
             Assert(Find<Label>(window, "ConnectionStatus").Text == connectionStatus,
                 "Update progress must not replace the connection status.");
             pending.SetResult(null);
-            PumpUntil(() => button.Enabled);
+            PumpUntil(() => button.Enabled && trayUpdate.Enabled);
             Assert(status.Text.Contains("up to date") && updater.Installs == 0,
                 "No update must leave the app open and show the result.");
 
             updater.Check = _ => Task.FromException<AppRelease?>(new System.Net.Http.HttpRequestException("Offline"));
-            button.PerformClick();
-            PumpUntil(() => button.Enabled);
+            trayUpdate.PerformClick();
+            PumpUntil(() => button.Enabled && trayUpdate.Enabled);
             Assert(status.Text.Contains("Offline") && !window.IsDisposed, "Show check failures and allow retry.");
 
             updater.Check = _ => Task.FromResult<AppRelease?>(Update);
@@ -40,7 +47,7 @@ internal static class UpdaterUiTests
 
             updater.Install = (_, progress, _) => { progress.Report(100); return Task.CompletedTask; };
             Find<CheckBox>(window, "MinimizeToTray").Checked = true;
-            button.PerformClick();
+            trayUpdate.PerformClick();
             PumpUntil(() => window.IsDisposed);
             Assert(updater.Installs == 2, "A successful installer launch must exit the app, including tray mode.");
         }
@@ -50,14 +57,14 @@ internal static class UpdaterUiTests
         cancelled.Check = token => waiting.Task.WaitAsync(token);
         using (MainWindow window = Window(cancelled))
         {
-            Find<Button>(window, "CheckForUpdates").PerformClick();
+            TrayUpdate(window).PerformClick();
             window.Close();
             PumpUntil(() => cancelled.Token.IsCancellationRequested);
             waiting.TrySetResult(Update);
             Application.DoEvents();
             Assert(cancelled.Installs == 0 && window.IsDisposed, "Exiting during a check must cancel without starting an installer.");
         }
-        Console.WriteLine("PASS: manual update UI, current version, duplicate prevention, no-update/error/retry, active-listener preservation, exit and cancellation.");
+        Console.WriteLine("PASS: window/tray updates, hidden-window restoration, shared duplicate prevention, no-update/error/retry, active-listener preservation, exit and cancellation.");
     }
 
     private static readonly AppRelease Update = new(new Version(0, 1, 4), "v0.1.4", "test.exe",
@@ -76,6 +83,12 @@ internal static class UpdaterUiTests
     }
 
     private static T Find<T>(Control window, string name) where T : Control => window.Controls.Find(name, true).OfType<T>().Single();
+    private static ToolStripMenuItem TrayUpdate(MainWindow window)
+    {
+        NotifyIcon tray = (NotifyIcon)typeof(MainWindow).GetField("_tray",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(window)!;
+        return tray.ContextMenuStrip!.Items.OfType<ToolStripMenuItem>().Single(item => item.Name == "TrayCheckForUpdates");
+    }
     private static void Assert(bool condition, string message) { if (!condition) throw new Exception(message); }
     private static void PumpUntil(Func<bool> condition)
     {

@@ -12,6 +12,21 @@ This file distinguishes automated checks from hardware testing. Do not claim a f
 
 CI checks only what it runs. A successful build does not prove smooth mouse interaction.
 
+## Deferred pointer hiding before parking (2026-11-03)
+
+The output worker could apply a central parking move before the input thread
+created the transparent pointer window. Parking now waits for that window.
+A pending visibility post cannot enqueue parking after a return or local takeover.
+The input-recovery regression holds the visibility post, verifies that no native
+placement is submitted yet, then exercises both cancellation paths repeatedly.
+
+The Release build, complete transport/input smoke suite and standard Windows UI
+suite pass. The build reports NU1900 because NuGet vulnerability data could not
+be fetched. The native return replay could not reproduce its unguarded control
+sequence while the installed MWB instance was running; that check is inconclusive.
+Repeated returns between two physical PCs and visual absence of a centre flash
+remain pending with the corrected build installed.
+
 ## Version 0.1.13 shortcut activation (2026-10-28)
 
 The Release build and complete Windows UI suite pass. Activation-message

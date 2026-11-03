@@ -12,9 +12,10 @@ internal static class InputRecoveryTests
         TestStalledOutput();
         TestOutputFailure();
         TestLocalMovementDuringPlacement();
+        TestCancelledParking();
         TestEmergencyStop();
         TestRetainedInstanceObject();
-        Console.WriteLine("PASS: native mouse output never runs on the capture thread; stalled output fails safely; local movement cancels pending placements; emergency stop works from the UI.");
+        Console.WriteLine("PASS: native mouse output never runs on the capture thread; stalled output fails safely; local movement cancels pending placements; deferred parking is cancelled on return/takeover; emergency stop works from the UI.");
     }
 
     private static void TestOutputThreadAndOrdering()
@@ -119,6 +120,34 @@ internal static class InputRecoveryTests
         Label status = window.Controls.Find("ConnectionStatus", true).OfType<Label>().Single();
         Assert(status.Text.Contains("Ctrl+Alt+F12") && toggle.Text == "Start receiving",
             "Emergency shortcut did not stop listening independently of the input thread.");
+    }
+
+    private static void TestCancelledParking()
+    {
+        ConcurrentQueue<Action> work = new();
+        int placements = 0;
+        using WindowsMouseDesktop desktop = new(work.Enqueue, ex => throw ex,
+            (count, _, _) => { Interlocked.Increment(ref placements); return count; });
+        for (int attempt = 0; attempt < 4; attempt++)
+        {
+            desktop.BeginCursorTransition();
+            desktop.SetPointerHidden(true);
+            Assert(desktop.PlacementPending && desktop.SuppressPhysicalMove(true),
+                "Forwarding accepted movement before deferred parking was ready.");
+            Assert(!desktop.OutputPending && Volatile.Read(ref placements) == 0,
+                "The native worker could park visibly before the visibility callback ran.");
+            // A fast return (or physical takeover) wins before the visibility
+            // callback runs. No centre placement should ever reach the worker.
+            if (attempt % 2 == 0)
+            {
+                desktop.BeginCursorTransition();
+                desktop.SetPointerHidden(false);
+            }
+            else Assert(!desktop.SuppressPhysicalMove(false), "Deferred parking blocked local takeover.");
+            while (work.TryDequeue(out Action? action)) action();
+            Assert(!desktop.PlacementPending && !desktop.OutputPending && Volatile.Read(ref placements) == 0,
+                "Cancelled deferred parking emitted a late centre placement.");
+        }
     }
 
     private static void WaitUntil(Func<bool> condition, string message)

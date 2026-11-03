@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.14 — Hide the pointer before central parking
+
+- Prepare the transparent pointer window before queuing the central parking move, preventing the native output worker from visibly moving the pointer before it is hidden.
+- Suppress forwarding movement while this preparation is pending, and cancel deferred parking when a return or local takeover wins the race.
+
 ## 0.1.13 — Reopen the running application from its shortcut
 
 - Launching MWB again restores and activates the existing window, using the same action as the notification-area icon, instead of displaying an already-running message.

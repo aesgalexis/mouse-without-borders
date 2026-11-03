@@ -11,7 +11,7 @@ internal sealed class WindowsMouseDesktop : IMouseDesktop, IDisposable
     private readonly MouseInputQueue _output;
     private HiddenPointerWindow? _hiddenPointer;
     private Point _anchor;
-    private bool _hideRequested, _refreshQueued, _disposed;
+    private bool _hideRequested, _parkPending, _refreshQueued, _disposed;
 
     internal WindowsMouseDesktop(Action<Action> post, Action<Exception>? error = null,
         NativeMouse.InputSender? sender = null)
@@ -19,8 +19,12 @@ internal sealed class WindowsMouseDesktop : IMouseDesktop, IDisposable
         _post = post;
         _output = new(ex => _post(() => (error ?? (failure => throw failure))(ex)), sender);
     }
-    public void BeginCursorTransition() => _motion.BeginTransition();
-    internal bool PlacementPending => _motion.PlacementPending;
+    public void BeginCursorTransition()
+    {
+        _parkPending = false;
+        _motion.BeginTransition();
+    }
+    internal bool PlacementPending => _parkPending || _motion.PlacementPending;
     internal bool OutputPending => _output.Pending;
 
     internal bool SuppressInjectedMove(NativeMouse.HookInfo info)
@@ -39,8 +43,12 @@ internal sealed class WindowsMouseDesktop : IMouseDesktop, IDisposable
         {
             Rectangle bounds = (Screen.PrimaryScreen ?? Screen.AllScreens[0]).Bounds;
             _anchor = new Point(bounds.Left + bounds.Width / 2, bounds.Top + bounds.Height / 2);
-            MoveCursor(_anchor);
+            // Window creation must stay outside the hook, but parking must wait
+            // for that window to hide the pointer. Otherwise the output worker
+            // can visibly warp to the centre before the posted refresh runs.
+            _parkPending = true;
         }
+        if (!hidden) _parkPending = false;
         if (changed || (!hidden && _hiddenPointer is not null)) QueueVisibilityRefresh();
     }
 
@@ -54,9 +62,18 @@ internal sealed class WindowsMouseDesktop : IMouseDesktop, IDisposable
             if (_disposed) return;
             if (_hideRequested)
             {
-                if (_hiddenPointer is not null) return;
-                _hiddenPointer = new HiddenPointerWindow(_anchor);
-                _hiddenPointer.HidePointer();
+                if (_hiddenPointer is null)
+                {
+                    _hiddenPointer = new HiddenPointerWindow(_anchor);
+                    _hiddenPointer.HidePointer();
+                }
+                // A return/local takeover can cancel parking before this post
+                // runs. Never generate a fresh placement for an obsolete hide.
+                if (_hideRequested && _parkPending && !_disposed)
+                {
+                    _parkPending = false;
+                    MoveCursor(_anchor);
+                }
             }
             else if (!PlacementPending) RevealPointer();
         });
@@ -74,7 +91,7 @@ internal sealed class WindowsMouseDesktop : IMouseDesktop, IDisposable
     {
         if (!PlacementPending) return false;
         if (forwarding) return true;
-        _motion.BeginTransition();
+        BeginCursorTransition();
         SetPointerHidden(false);
         return false;
     }

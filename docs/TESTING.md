@@ -12,6 +12,40 @@ This file distinguishes automated checks from hardware testing. Do not claim a f
 
 CI checks only what it runs. A successful build does not prove smooth mouse interaction.
 
+## Version 0.1.16 global cursor ownership (2026-11-03)
+
+The user confirmed the ghost on physical screens with 0.1.15. A passive 50-second
+capture recorded 41 ordinary-cursor intervals at the primary centre before
+switching to the transparent cursor (typical observed interval 16 ms, maximum
+65 ms; these are polling estimates). The owning thread's GetCursor check in
+0.1.15 did not cover this global rendering transition.
+
+The parking helper now covers two small disjoint regions: the source point and
+central anchor. A tagged one-pixel source move establishes real input ownership
+when needed. Global GetCursorInfo plus hit testing must confirm the helper's
+transparent cursor before central parking. WM_SETCURSOR and output completion
+request rechecks; preparation has a fixed deadline and cancellation invalidates
+late source moves. Central parking gets a fresh placement generation.
+
+Deterministic checks cover delayed global hiding, acknowledgement without global
+hiding, failed preparation without a centre move, early return, and fresh centre
+acknowledgement. The complete standard UI suite and native thread-cursor check
+pass locally. The helper-region check verifies that the area between the source
+and centre is excluded.
+
+On an interactive Windows desktop, run the UI project with
+`--native-global-control-only` to reproduce the legacy flash (expected failure),
+then `--native-global-parking-only` for the corrected sequence. This uses real
+SendInput, a global GetCursorInfo observer on a separate thread, source dwell
+and centre dwell, and 16 round trips across both edges. The control failed with
+an ordinary cursor at the centre; the corrected run passed with 90 UI and 94
+independent centre observations. No buttons are injected; the original pointer
+position is restored. The test isolates ownership tags from an installed MWB
+instance while preserving native movement and hook processing.
+
+These local native checks are stronger than CI's thread-state check, but do not
+replace the user's two-PC visual acceptance after installing the new version.
+
 ## Version 0.1.15 pointer visibility during handoffs (2026-11-03)
 
 The 0.1.14 ordering change was incomplete: a parking window can remain alive

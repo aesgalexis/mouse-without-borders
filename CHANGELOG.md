@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.16 — Confirm global hiding at the exit before central parking
+
+- Cover the exit point and central anchor with two small regions of one non-activating window. Establish cursor ownership at the exit and require the transparent image in global `GetCursorInfo` before submitting the centre move.
+- Wake preparation from Windows cursor messages and native output completion. Use a fresh placement generation for central parking, cancel preparation on return/local takeover, and stop safely if global hiding cannot be established.
+- Add a real global-cursor regression with an independent observer: the legacy control reproduces the centre flash; the corrected sequence passes 16 native round trips on both edges. Preserve the existing local-input and return-position regressions.
+
 ## 0.1.15 — Restore pointer hiding throughout handoffs
 
 - Reassert the transparent cursor before native parking, while forwarding movement and during visibility recovery. Reused parking windows hide again without saving their own blank cursor as the image to restore.

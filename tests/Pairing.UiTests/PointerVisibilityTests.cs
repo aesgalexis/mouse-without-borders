@@ -15,12 +15,16 @@ internal static class PointerVisibilityTests
         TestClampedReturnPosition();
         TestReusedWindowAndTakeover();
         TestFailedReturn();
+        TestGlobalHideBeforeParking();
+        TestReturnDuringGlobalHide();
         Console.WriteLine("PASS: visibility waits for an actual current position without starving continuous movement; reverse handoffs reassert hiding; stationary input cannot cancel parking; local takeover and failed-return cleanup recover.");
     }
 
     private sealed class Pointer : IPointerParkingWindow
     {
         internal int Hides, Refreshes, Disposals;
+        public bool IsCursorHidden { get; set; } = true;
+        public void Prepare(Point source) { }
         public void HidePointer() => Hides++;
         public void RefreshCursor() => Refreshes++;
         public void Dispose() => Disposals++;
@@ -186,6 +190,60 @@ internal static class PointerVisibilityTests
         Assert(fixture.Pointer.Disposals == 1, "Windows' clamped return position left the pointer hidden.");
     }
 
+    private static void TestGlobalHideBeforeParking()
+    {
+        using Fixture fixture = new();
+        fixture.Cursor = new Point(40, 40);
+        fixture.Pointer.IsCursorHidden = false;
+        fixture.Desktop.SetPointerHidden(true);
+        fixture.Drain();
+        Wait(() => !fixture.Desktop.OutputPending, "Source preparation was not submitted.");
+        Assert(fixture.Inputs.Count == 1 && fixture.Desktop.PlacementPending,
+            "Parking did not wait for the global cursor to become transparent.");
+        fixture.Desktop.SuppressInjectedMove(fixture.Inputs.Last());
+        fixture.Drain();
+        Assert(fixture.Inputs.Count == 1, "A source-move acknowledgement was mistaken for global hiding.");
+        fixture.Pointer.IsCursorHidden = true;
+        fixture.Desktop.RecoverVisibility();
+        fixture.Drain();
+        Wait(() => !fixture.Desktop.OutputPending, "Confirmed hidden parking was not submitted.");
+        Assert(fixture.Inputs.Count == 2, "Global hiding did not release the centre placement.");
+        Assert(fixture.Desktop.PlacementPending, "Centre placement reused the source preparation acknowledgement.");
+
+        using Fixture failed = new();
+        failed.Pointer.IsCursorHidden = false;
+        failed.Desktop.SetPointerHidden(true);
+        failed.Drain();
+        Wait(() => !failed.Desktop.OutputPending, "Failed-hide preparation was not submitted.");
+        failed.Drain();
+        failed.Now = CursorMotionGuard.PlacementTimeoutMilliseconds;
+        try { failed.Desktop.RecoverVisibility(); failed.Drain(); throw new Exception("Unconfirmed hiding did not time out safely."); }
+        catch (Win32Exception) { }
+        Assert(failed.Inputs.Count == 1, "A failed hide still moved the pointer to the centre.");
+    }
+
+    private static void TestReturnDuringGlobalHide()
+    {
+        using Fixture fixture = new();
+        fixture.Pointer.IsCursorHidden = false;
+        fixture.Cursor = new Point(40, 40);
+        fixture.Desktop.SetPointerHidden(true);
+        fixture.Drain();
+        Wait(() => !fixture.Desktop.OutputPending, "Source preparation was not submitted.");
+        NativeMouse.HookInfo old = fixture.Inputs.Last();
+        Point returned = new(100, 100);
+        fixture.Desktop.BeginCursorTransition();
+        fixture.Desktop.MoveCursor(returned);
+        fixture.Desktop.SetPointerHidden(false);
+        Wait(() => !fixture.Desktop.OutputPending, "Early return was not submitted.");
+        fixture.Pointer.IsCursorHidden = true;
+        Assert(fixture.Desktop.SuppressInjectedMove(old), "Late preparation escaped after return.");
+        fixture.Desktop.SuppressInjectedMove(fixture.Inputs.Last());
+        fixture.Cursor = returned;
+        fixture.Desktop.RecoverVisibility(); fixture.Drain();
+        Assert(fixture.Inputs.Count == 2 && fixture.Pointer.Disposals == 1,
+            "A delayed global-hidden notification generated a centre move after return.");
+    }
     [DllImport("user32.dll")] private static extern IntPtr GetCursor();
     [DllImport("user32.dll")] private static extern IntPtr SetCursor(IntPtr cursor);
     [DllImport("user32.dll")] private static extern IntPtr LoadCursor(IntPtr instance, IntPtr name);
@@ -193,6 +251,15 @@ internal static class PointerVisibilityTests
 
     internal static void RunNative()
     {
+        using (HiddenPointerWindow geometry = new(new Point(300, 300)))
+        {
+            geometry.Prepare(new Point(100, 100));
+            Region region = geometry.Region!;
+            Assert(region.IsVisible(new Point(100 - geometry.Left, 100 - geometry.Top)) &&
+                region.IsVisible(new Point(300 - geometry.Left, 300 - geometry.Top)) &&
+                !region.IsVisible(new Point(200 - geometry.Left, 200 - geometry.Top)),
+                "Parking must cover only the source and centre patches, not the area between them.");
+        }
         using MouseCapture keepStill = new((_, _) => true);
         if (!NativeMouse.GetCursorPos(out var position)) throw new Exception("Cannot read the cursor.");
         IntPtr originalCursor = GetCursor();
@@ -208,7 +275,14 @@ internal static class PointerVisibilityTests
                 // captured so this shape/lifecycle check needs no cursor warps.
                 using WindowsMouseDesktop desktop = new(work.Enqueue, ex => throw ex,
                     (count, input, _) => { inputs.Enqueue(new() { ExtraInfo = input[0].Data.Mouse.ExtraInfo }); return count; },
-                    _ => pointer = new HiddenPointerWindow(new Point(position.X, position.Y)));
+                    _ =>
+                    {
+                        // This check isolates thread cursor selection. The real
+                        // global-ready gate is exercised by RunNativeGlobal.
+                        NativeParking window = new(new Point(position.X, position.Y), () => { }, legacy: true);
+                        pointer = window.Window;
+                        return window;
+                    });
                 desktop.SetPointerHidden(true);
                 Drain();
                 Wait(() => !desktop.OutputPending, "Native parking fixture did not submit its placement.");
@@ -242,6 +316,136 @@ internal static class PointerVisibilityTests
         Console.WriteLine("PASS: native control reproduces a replaced thread cursor; parking, forwarding and recovery restore its transparent image; repeated hiding cleans up and preserves focus; no movement or buttons injected.");
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct GlobalCursor
+    {
+        internal int Size, Flags;
+        internal IntPtr Cursor;
+        internal NativeMouse.Point Position;
+    }
+    [DllImport("user32.dll")] private static extern bool GetCursorInfo(ref GlobalCursor info);
+
+    private sealed class NativeParking : IPointerParkingWindow
+    {
+        internal readonly HiddenPointerWindow Window;
+        private readonly bool _legacy;
+        internal NativeParking(Point anchor, Action ready, bool legacy)
+        { Window = new(anchor, ready); _legacy = legacy; }
+        public bool IsCursorHidden => _legacy || Window.IsCursorHidden;
+        public void Prepare(Point source) { if (!_legacy) Window.Prepare(source); }
+        public void HidePointer() => Window.HidePointer();
+        public void RefreshCursor() => Window.RefreshCursor();
+        public void Dispose() => Window.Dispose();
+    }
+
+    internal static void RunNativeGlobal(bool legacy = false)
+    {
+        if (!NativeMouse.GetCursorPos(out var original)) throw new Exception("Cannot read original cursor.");
+        Point start = new(original.X, original.Y);
+        Rectangle monitor = (Screen.PrimaryScreen ?? Screen.AllScreens[0]).Bounds;
+        Point centre = new(monitor.Left + monitor.Width / 2, monitor.Top + monitor.Height / 2);
+        ConcurrentQueue<Action> work = new();
+        ConcurrentQueue<Exception> errors = new();
+        long marker = 0;
+        WindowsMouseDesktop? desktop = null;
+        NativeParking? parking = null;
+        long blank = 0;
+        int globalGhosts = 0, globalSamples = 0;
+        bool verify = false;
+        using CancellationTokenSource stopObserver = new();
+        Thread observer = new(() =>
+        {
+            while (!stopObserver.IsCancellationRequested)
+            {
+                if (Volatile.Read(ref verify))
+                {
+                    GlobalCursor cursor = new() { Size = Marshal.SizeOf<GlobalCursor>() };
+                    if (GetCursorInfo(ref cursor) && cursor.Position.X == centre.X && cursor.Position.Y == centre.Y)
+                    {
+                        Interlocked.Increment(ref globalSamples);
+                        if (cursor.Cursor.ToInt64() != Interlocked.Read(ref blank)) Interlocked.Increment(ref globalGhosts);
+                    }
+                }
+                Thread.Sleep(1);
+            }
+        }) { IsBackground = true };
+        using MouseCapture capture = new((_, _) => true, (message, info) =>
+        {
+            if (message != NativeMouse.WM_MOUSEMOVE || desktop is null || info.ExtraInfo != NativeMouse.InputMarker) return false;
+            info.ExtraInfo = (IntPtr)Interlocked.Read(ref marker);
+            return desktop.SuppressInjectedMove(info);
+        });
+        using WindowsMouseDesktop input = new(work.Enqueue, errors.Enqueue, (count, inputs, size) =>
+        {
+            // Keep an installed MWB instance from rejecting this test process's
+            // ownership generation. Our hook restores the tag before guarding it.
+            Interlocked.Exchange(ref marker, inputs[0].Data.Mouse.ExtraInfo.ToInt64());
+            var copy = inputs.ToArray();
+            copy[0].Data.Mouse.ExtraInfo = NativeMouse.InputMarker;
+            return NativeMouse.SendInput(count, copy, size);
+        }, anchor =>
+        {
+            parking = new NativeParking(anchor, () => work.Enqueue(() => desktop?.RecoverVisibility()), legacy);
+            Interlocked.Exchange(ref blank, parking.Window.HiddenCursor.ToInt64());
+            return parking;
+        });
+        desktop = input;
+        int samples = 0;
+        observer.Start();
+        try
+        {
+            foreach (bool right in new[] { true, false })
+            for (int repeat = 0; repeat < 8; repeat++)
+            {
+                Point edge = new(right ? monitor.Right - 26 : monitor.Left + 25, monitor.Top + monitor.Height / 3);
+                input.BeginCursorTransition(); input.MoveCursor(edge);
+                Pump(() => input.Cursor == edge && !input.OutputPending);
+                Stopwatch dwell = Stopwatch.StartNew();
+                Pump(() => dwell.ElapsedMilliseconds >= 60);
+                Volatile.Write(ref verify, true);
+                input.BeginCursorTransition(); input.SetPointerHidden(true);
+                Pump(() => input.Cursor == centre && !input.PlacementPending && !input.OutputPending);
+                Assert(parking!.Window.IsCursorHidden, "The global cursor was not transparent at the centre.");
+                Stopwatch parked = Stopwatch.StartNew();
+                Pump(() => parked.ElapsedMilliseconds >= 40);
+                input.BeginCursorTransition(); input.MoveCursor(edge); input.SetPointerHidden(false);
+                Pump(() => input.Cursor == edge && !input.OutputPending);
+                Volatile.Write(ref verify, false);
+            }
+            Assert(globalGhosts == 0, $"Independent observer recorded {globalGhosts} visible centre samples.");
+        }
+        finally
+        {
+            Volatile.Write(ref verify, false);
+            stopObserver.Cancel();
+            observer.Join(1000);
+            input.BeginCursorTransition(); input.SetPointerHidden(false); input.MoveCursor(start);
+            Pump(() => input.Cursor == start && !input.OutputPending);
+        }
+        Console.WriteLine($"PASS: global cursor stays transparent at centre through 16 native round trips on both edges ({samples} UI and {globalSamples} independent centre observations); original position restored; no buttons injected.");
+
+        void Pump(Func<bool> finished)
+        {
+            Stopwatch wait = Stopwatch.StartNew();
+            do
+            {
+                while (work.TryDequeue(out Action? action)) action();
+                Application.DoEvents();
+                if (verify)
+                {
+                    GlobalCursor cursor = new() { Size = Marshal.SizeOf<GlobalCursor>() };
+                    if (GetCursorInfo(ref cursor) && cursor.Position.X == centre.X && cursor.Position.Y == centre.Y)
+                    {
+                        samples++;
+                        Assert(parking!.Window.IsCursorHidden, "Observed an ordinary global cursor at the centre during a handoff.");
+                    }
+                }
+                if (!errors.IsEmpty) throw new Exception("Native global parking failed: " + string.Join("; ", errors));
+                if (wait.ElapsedMilliseconds > 3000) throw new Exception("Native global parking did not finish.");
+                Thread.Sleep(1);
+            } while (!finished());
+        }
+    }
     private static void Wait(Func<bool> condition, string message)
     {
         Stopwatch wait = Stopwatch.StartNew();

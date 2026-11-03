@@ -6,6 +6,8 @@ internal static class Program
     private static void Main(string[] args)
     {
         ApplicationConfiguration.Initialize();
+        if (args.Contains("--native-global-control-only", StringComparer.Ordinal)) { PointerVisibilityTests.RunNativeGlobal(legacy: true); return; }
+        if (args.Contains("--native-global-parking-only", StringComparer.Ordinal)) { PointerVisibilityTests.RunNativeGlobal(); return; }
         if (args.Contains("--pointer-visibility-only", StringComparer.Ordinal)) { PointerVisibilityTests.Run(); return; }
         if (args.Contains("--native-visibility-only", StringComparer.Ordinal)) { PointerVisibilityTests.RunNative(); return; }
         if (args.Contains("--input-recovery-only", StringComparer.Ordinal)) { InputRecoveryTests.Run(); return; }

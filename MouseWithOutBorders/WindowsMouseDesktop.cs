@@ -18,14 +18,19 @@ internal sealed class WindowsMouseDesktop : IMouseDesktop, IDisposable
     private long _placementDeadline;
     private Point _anchor;
     private bool _hideRequested, _parkPending, _refreshQueued, _disposed;
-    private volatile bool _revealRequested;
+    private bool _parkPrepared, _preflightQueued;
+    private long _hideDeadline;
+    private volatile bool _visibilityRequested;
 
     internal WindowsMouseDesktop(Action<Action> post, Action<Exception>? error = null,
         NativeMouse.InputSender? sender = null, Func<Point, IPointerParkingWindow>? pointerFactory = null,
         Func<Point>? readCursor = null, Func<long>? milliseconds = null)
     {
         _post = post;
-        _pointerFactory = pointerFactory ?? (anchor => new HiddenPointerWindow(anchor));
+        _pointerFactory = pointerFactory ?? (anchor => new HiddenPointerWindow(anchor, () =>
+        {
+            if (_parkPending) QueueVisibilityRefresh();
+        }));
         _readCursor = readCursor ?? ReadCursor;
         _milliseconds = milliseconds ?? (() => Environment.TickCount64);
         _motion = new(_milliseconds);
@@ -33,21 +38,24 @@ internal sealed class WindowsMouseDesktop : IMouseDesktop, IDisposable
         {
             // Retry after the native call too, without waiting for the 100 ms
             // watchdog or posting work for ordinary already-visible movement.
-            if (_revealRequested) _post(() =>
+            if (_visibilityRequested) _post(() =>
             {
-                if (!_disposed && !_hideRequested) TryRevealPointer();
+                if (!_disposed) QueueVisibilityRefresh();
             });
         });
     }
     public void BeginCursorTransition()
     {
         _parkPending = false;
+        _parkPrepared = _preflightQueued = false;
+        _visibilityRequested = false;
         _awaitingVisiblePlacement = false;
         _revealPositions.Clear();
         _motion.BeginTransition();
     }
     internal bool PlacementPending => _parkPending || _motion.PlacementPending;
     internal bool OutputPending => _output.Pending;
+    internal bool IsCursorHidden => _hiddenPointer?.IsCursorHidden == true;
 
     internal bool SuppressInjectedMove(NativeMouse.HookInfo info)
     {
@@ -55,6 +63,7 @@ internal sealed class WindowsMouseDesktop : IMouseDesktop, IDisposable
         // Reassert the blank image immediately before accepting a parking
         // placement. Creating the helper earlier does not reserve that image.
         if (!suppress && _hideRequested) _hiddenPointer?.RefreshCursor();
+        if (!suppress && _parkPending) QueueVisibilityRefresh();
         if (!suppress && !_hideRequested && _hiddenPointer is not null) QueueVisibilityRefresh();
         return suppress;
     }
@@ -64,7 +73,7 @@ internal sealed class WindowsMouseDesktop : IMouseDesktop, IDisposable
         if (_disposed) return;
         bool changed = _hideRequested != hidden;
         _hideRequested = hidden;
-        _revealRequested = !hidden && _hiddenPointer is not null;
+        _visibilityRequested = !hidden && _hiddenPointer is not null;
         if (hidden && changed)
         {
             Rectangle bounds = (Screen.PrimaryScreen ?? Screen.AllScreens[0]).Bounds;
@@ -73,6 +82,9 @@ internal sealed class WindowsMouseDesktop : IMouseDesktop, IDisposable
             // for that window to hide the pointer. Otherwise the output worker
             // can visibly warp to the centre before the posted refresh runs.
             _parkPending = true;
+            _parkPrepared = _preflightQueued = false;
+            _hideDeadline = _milliseconds() + CursorMotionGuard.PlacementTimeoutMilliseconds;
+            _visibilityRequested = true;
         }
         if (!hidden) _parkPending = false;
         if (changed || (!hidden && _hiddenPointer is not null)) QueueVisibilityRefresh();
@@ -91,13 +103,38 @@ internal sealed class WindowsMouseDesktop : IMouseDesktop, IDisposable
                 _hiddenPointer ??= _pointerFactory(_anchor);
                 // Reassert hiding even when a quick reverse handoff reuses the
                 // window before the previous reveal was allowed to dispose it.
-                _hiddenPointer.HidePointer();
+                if (!_parkPrepared)
+                {
+                    _parkPrepared = true;
+                    // The SAME window covers source and centre. Establish its
+                    // real cursor ownership here, before crossing to the centre.
+                    _hiddenPointer.Prepare(Cursor);
+                    _hiddenPointer.HidePointer();
+                }
+                else _hiddenPointer.RefreshCursor();
                 // A return/local takeover can cancel parking before this post
                 // runs. Never generate a fresh placement for an obsolete hide.
                 if (_hideRequested && _parkPending && !_disposed)
                 {
-                    _parkPending = false;
-                    MoveCursor(_anchor);
+                    if (_hiddenPointer.IsCursorHidden)
+                    {
+                        _parkPending = false;
+                        _visibilityRequested = false;
+                        _motion.BeginTransition();
+                        MoveCursor(_anchor);
+                    }
+                    else if (_milliseconds() >= _hideDeadline)
+                        throw new Win32Exception("Windows did not hide the cursor at the exit point. Sharing stopped to preserve local control.");
+                    else if (!_preflightQueued)
+                    {
+                        _preflightQueued = true;
+                        Point source = Cursor;
+                        Rectangle monitor = Screen.FromPoint(source).Bounds;
+                        // A one-pixel tagged move stays under the source patch
+                        // and makes Windows update actual input ownership.
+                        int dx = source.X < monitor.Right - 1 ? 1 : -1;
+                        MoveCursor(new Point(source.X + dx, source.Y));
+                    }
                 }
             }
             else TryRevealPointer();
@@ -110,7 +147,11 @@ internal sealed class WindowsMouseDesktop : IMouseDesktop, IDisposable
     {
         _output.CheckHealth();
         if (_disposed) return;
-        if (_hideRequested) _hiddenPointer?.RefreshCursor();
+        if (_hideRequested)
+        {
+            _hiddenPointer?.RefreshCursor();
+            if (_parkPending) QueueVisibilityRefresh();
+        }
         else TryRevealPointer();
     }
 
@@ -149,7 +190,7 @@ internal sealed class WindowsMouseDesktop : IMouseDesktop, IDisposable
 
     private void RevealPointer()
     {
-        _revealRequested = false;
+        _visibilityRequested = false;
         IPointerParkingWindow? pointer = _hiddenPointer;
         _hiddenPointer = null;
         pointer?.Dispose();

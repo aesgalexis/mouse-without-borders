@@ -130,8 +130,9 @@ internal sealed class MouseSharingService : IDisposable
                 // Pending remote/parking placement must never lock a local
                 // mouse or trackpad. Local movement retires queued placement
                 // tags before ownership is reclaimed.
-                if (_desktop!.SuppressPhysicalMove(session.IsRemote)) return true;
                 if (!NativeMouse.GetCursorPos(out var previous)) return session.IsRemote;
+                bool stationary = previous.X == info.Position.X && previous.Y == info.Position.Y;
+                if (_desktop!.SuppressPhysicalMove(session.IsRemote, stationary)) return true;
                 return session.PhysicalMove(new Point(previous.X, previous.Y), new Point(info.Position.X, info.Position.Y));
             }
             uint flag = message switch

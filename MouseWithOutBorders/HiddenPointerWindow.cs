@@ -3,14 +3,20 @@ using System.Runtime.InteropServices;
 
 namespace MouseWithOutBorders;
 
-// Own the parked cursor's tiny hit-test area while forwarding input. No system
-// cursor scheme or ShowCursor counter is changed. Windows removes this window
-// even if the process crashes, so normal mouse movement restores the cursor.
-internal sealed class HiddenPointerWindow : Form
+internal interface IPointerParkingWindow : IDisposable
+{
+    void HidePointer();
+    void RefreshCursor();
+}
+
+// Own the parked cursor's input area without changing the system cursor scheme
+// or ShowCursor counter. Window lifecycle stays outside the mouse hook.
+internal sealed class HiddenPointerWindow : Form, IPointerParkingWindow
 {
     private readonly IntPtr _blank;
     private readonly Cursor _cursor;
     private IntPtr _previous;
+    private bool _shown;
     internal IntPtr HiddenCursor => _blank;
 
     internal HiddenPointerWindow(Point anchor)
@@ -23,6 +29,7 @@ internal sealed class HiddenPointerWindow : Form
         FormBorderStyle = FormBorderStyle.None;
         ShowInTaskbar = false;
         StartPosition = FormStartPosition.Manual;
+        AutoScaleMode = AutoScaleMode.None;
         Bounds = new Rectangle(anchor.X - 8, anchor.Y - 8, 16, 16);
         BackColor = Color.Black;
         // Alpha zero would pass hit testing to the window beneath, which could
@@ -41,9 +48,13 @@ internal sealed class HiddenPointerWindow : Form
         }
     }
 
-    internal void HidePointer()
+    public void HidePointer()
     {
-        _previous = SetCursor(_blank);
+        if (!_shown)
+        {
+            _previous = SetCursor(_blank);
+            _shown = true;
+        }
         // Managed Form.Show/Hide perform activation bookkeeping. This helper
         // must never become the active WinForms form or restore another form.
         ShowWindow(Handle, 4);
@@ -51,6 +62,9 @@ internal sealed class HiddenPointerWindow : Form
             throw new Win32Exception(Marshal.GetLastWin32Error());
         SetCursor(_blank);
     }
+
+    // Safe in WH_MOUSE_LL: no window creation, focus changes or input injection.
+    public void RefreshCursor() => SetCursor(_blank);
 
     protected override void WndProc(ref Message message)
     {

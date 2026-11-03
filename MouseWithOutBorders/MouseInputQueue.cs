@@ -12,6 +12,7 @@ internal sealed class MouseInputQueue : IDisposable
     private readonly BlockingCollection<NativeMouse.Input[]> _pending = new(2048);
     private readonly NativeMouse.InputSender _send;
     private readonly Action<Exception> _error;
+    private readonly Action? _completed;
     private readonly Thread _worker;
     private long _sendingSince;
     private int _stopped;
@@ -21,9 +22,10 @@ internal sealed class MouseInputQueue : IDisposable
 
     internal bool Pending => Volatile.Read(ref _outstanding) != 0;
 
-    internal MouseInputQueue(Action<Exception> error, NativeMouse.InputSender? send = null)
+    internal MouseInputQueue(Action<Exception> error, NativeMouse.InputSender? send = null, Action? completed = null)
     {
         _error = error;
+        _completed = completed;
         _send = send ?? NativeMouse.SendInput;
         _worker = new Thread(Run) { IsBackground = true, Name = "MWB native mouse output" };
         _worker.Start();
@@ -65,6 +67,7 @@ internal sealed class MouseInputQueue : IDisposable
                     Volatile.Write(ref _sendingSince, 0);
                     Interlocked.Decrement(ref _outstanding);
                 }
+                _completed?.Invoke();
             }
         }
         catch (Exception ex) { Report(ex); }

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.15 — Restore pointer hiding throughout handoffs
+
+- Reassert the transparent cursor before native parking, while forwarding movement and during visibility recovery. Reused parking windows hide again without saving their own blank cursor as the image to restore.
+- Keep the pointer hidden until Windows reports a position placed by the current ownership. A hook acknowledgement alone does not prove that the cursor has left the centre. Allow continuous motion without waiting for the output queue to empty; stop safely if return placement fails.
+- Ignore stationary notifications during pending parking while preserving immediate local mouse/trackpad takeover. Skip visibility posts when no hidden pointer window needs restoring.
+- Add delayed-placement, reverse-handoff, continuous-input and failed-return regressions, plus a native Windows cursor-state check in CI. Physical two-PC visual acceptance remains pending.
+
 ## 0.1.14 — Hide the pointer before central parking
 
 - Prepare the transparent pointer window before queuing the central parking move, preventing the native output worker from visibly moving the pointer before it is hidden.

@@ -82,6 +82,10 @@ jobs:
         shell: pwsh
         run: dotnet run --project tests/Pairing.UiTests/Pairing.UiTests.csproj --configuration Release
 
+      - name: Test native pointer visibility state
+        shell: pwsh
+        run: dotnet run --project tests/Pairing.UiTests/Pairing.UiTests.csproj --configuration Release --no-build -- --native-visibility-only
+
       - name: Publish portable executable
         shell: pwsh
         run: |

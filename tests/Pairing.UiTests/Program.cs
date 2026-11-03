@@ -6,6 +6,8 @@ internal static class Program
     private static void Main(string[] args)
     {
         ApplicationConfiguration.Initialize();
+        if (args.Contains("--pointer-visibility-only", StringComparer.Ordinal)) { PointerVisibilityTests.Run(); return; }
+        if (args.Contains("--native-visibility-only", StringComparer.Ordinal)) { PointerVisibilityTests.RunNative(); return; }
         if (args.Contains("--input-recovery-only", StringComparer.Ordinal)) { InputRecoveryTests.Run(); return; }
         if (args.Contains("--robustness-only", StringComparer.Ordinal)) { RobustnessUiTests.Run(); return; }
         if (args.Contains("--native-robustness-only", StringComparer.Ordinal)) { RobustnessUiTests.RunNative(); return; }
@@ -107,6 +109,7 @@ internal static class Program
         ElevationUiTests.Run();
         RobustnessUiTests.Run();
         InputRecoveryTests.Run();
+        PointerVisibilityTests.Run();
         KeyboardUiTests.Run(args.Length == 2 && args[0] == "--screenshots" ? args[1] : null);
         ClipboardUiTests.Run();
         if (args.Contains("--native-keyboard", StringComparer.Ordinal)) KeyboardUiTests.RunNative();
@@ -116,6 +119,7 @@ internal static class Program
             CursorReturnUiTests.RunNative();
             TestNativePointer();
             TestPointerVisibility();
+            PointerVisibilityTests.RunNative();
         }
     }
 

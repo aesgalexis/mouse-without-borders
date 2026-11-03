@@ -12,6 +12,32 @@ This file distinguishes automated checks from hardware testing. Do not claim a f
 
 CI checks only what it runs. A successful build does not prove smooth mouse interaction.
 
+## Version 0.1.15 pointer visibility during handoffs (2026-11-03)
+
+The 0.1.14 ordering change was incomplete: a parking window can remain alive
+while its thread's selected cursor has been replaced, and a low-level-hook
+acknowledgement arrives before Windows applies the returning position.
+The new checks hold native output, acknowledge a return while the cursor is
+still at the centre, and verify that visibility waits for an actual position
+from the current ownership. Continuous movement must reveal without waiting
+for the entire queue to drain, and completed native output requests an immediate
+visibility recheck rather than waiting for the watchdog. Clamped screen positions
+and a fixed recovery deadline are checked. Reverse handoffs, obsolete returns, stationary
+notifications, genuine local takeover and failed-return cleanup are covered.
+
+Run `dotnet run --project tests/Pairing.UiTests/Pairing.UiTests.csproj -c Release -- --pointer-visibility-only`
+for those deterministic checks. Run with `--native-visibility-only` for a real
+Win32 cursor-state check: it replaces the helper thread's image with the normal
+arrow, then verifies that parking, forwarding and recovery reselect the
+transparent cursor and repeated hiding restores a valid previous image.
+It creates a small non-activating window but injects no movement or buttons.
+CI runs this native check too. It uses the owning thread's `GetCursor` state;
+it does not certify global rendering or interference from other applications.
+
+The full standard Windows UI suite and native cursor-state check passed locally.
+Visual absence of ghosts on both physical PCs remains a manual acceptance check.
+The intermittent local lag has not been reproduced or declared fixed.
+
 ## Deferred pointer hiding before parking (2026-11-03)
 
 The output worker could apply a central parking move before the input thread

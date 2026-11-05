@@ -179,7 +179,10 @@ try {
         $listener.Start()
         try {
             while ($listener.IsListening) {
-                $context = $listener.GetContext()
+                # Keep PowerShell responsive to Stop-Job while no client is connected.
+                $pendingContext = $listener.GetContextAsync()
+                while (-not $pendingContext.IsCompleted) { Start-Sleep -Milliseconds 100 }
+                $context = $pendingContext.GetAwaiter().GetResult()
                 try {
                     Write-Output "$($context.Request.HttpMethod) $($context.Request.RawUrl)"
                     $file = $Files[$context.Request.Url.AbsolutePath]

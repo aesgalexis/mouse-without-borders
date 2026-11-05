@@ -31,12 +31,21 @@ $settings = @{ Role = 'Controller'; Host = ''; PairingKey = 'ABCDEFGH'; RemoteKe
     ShareClipboard = $false; KeyRemappingEnabled = $false; KeyMappings = @() }
 $server = $null
 $localManifestsEnabled = $false
+$originalWinGetSettings = $null
+$winGetSettingsChanged = $false
 
 function Invoke-WinGet([string]$Case, [string[]]$Arguments) {
-    $output = @(& $script:winget @Arguments --disable-interactivity --verbose-logs 2>&1)
+    $log = Join-Path $work "$Case.log"
+    [IO.File]::WriteAllText($log, '')
+    $output = New-Object 'System.Collections.Generic.List[string]'
+    Write-Host "Starting WinGet case: $Case"
+    & $script:winget @Arguments --disable-interactivity --verbose-logs 2>&1 | ForEach-Object {
+        $line = [string]$_
+        $output.Add($line)
+        $line | Out-File -LiteralPath $log -Append -Encoding utf8
+        Write-Host $line
+    }
     $code = $LASTEXITCODE
-    $output | Out-File -LiteralPath (Join-Path $work "$Case.log") -Encoding utf8
-    $output | ForEach-Object { Write-Host $_ }
     if ($code -ne 0) {
         if ($server) {
             try {
@@ -140,6 +149,8 @@ function Start-TestApp([bool]$Tray) {
 }
 
 try {
+    Install-Module -Name Microsoft.WinGet.Client -RequiredVersion 1.29.380 -Scope CurrentUser -Repository PSGallery -Force -AllowClobber
+    Import-Module Microsoft.WinGet.Client -RequiredVersion 1.29.380
     # Prefer the runner's working client. Repair only the CI user's registration;
     # -AllUsers can select an incomplete provisioned bundle on hosted Server images.
     $wingetCandidate = Get-Command winget.exe -ErrorAction SilentlyContinue
@@ -152,12 +163,16 @@ try {
         } catch { $usableClient = $false }
     }
     if (-not $usableClient) {
-        Install-Module -Name Microsoft.WinGet.Client -RequiredVersion 1.29.380 -Scope CurrentUser -Repository PSGallery -Force -AllowClobber
-        Import-Module Microsoft.WinGet.Client -RequiredVersion 1.29.380
         Repair-WinGetPackageManager -Version 'v1.29.380' -Force
     }
     $script:winget = (Get-Command winget.exe -ErrorAction Stop).Source
     [void](Invoke-WinGet 'client-version' @('--version'))
+    $originalWinGetSettings = Get-WinGetUserSetting
+    $winGetSettingsChanged = $true
+    # Delivery Optimization is unsuitable for this simple CI loopback fixture.
+    # Use the documented WinINet downloader only in the disposable CI account.
+    Set-WinGetUserSetting -UserSettings @{ network = @{ downloader = 'wininet' } } -Merge | Out-Null
+    Write-Host 'CI fixture downloads use WinINet; original WinGet user settings will be restored.'
     [void](Invoke-WinGet 'enable-local-manifests' @('settings', '--enable', 'LocalManifestFiles'))
     $localManifestsEnabled = $true
 
@@ -256,6 +271,10 @@ public static class MwbWinGetNative {
     Get-Process -Name MouseWithOutBorders -ErrorAction SilentlyContinue |
         Where-Object { $_.Path -ieq $app } | Stop-Process -Force
     if ($localManifestsEnabled) { & $script:winget settings --disable LocalManifestFiles --disable-interactivity | Out-Null }
+    if ($winGetSettingsChanged) {
+        try { Set-WinGetUserSetting -UserSettings $originalWinGetSettings | Out-Null }
+        catch { Write-Warning "Cannot restore CI WinGet user settings: $($_.Exception.Message)" }
+    }
     if ($null -ne $originalSettings) { [IO.File]::WriteAllBytes($settingsPath, $originalSettings) }
     elseif (Test-Path -LiteralPath $settingsPath) { Remove-Item -LiteralPath $settingsPath -Force }
     # Keep fixture manifests and command logs as CI diagnostics. The runner is discarded after the job.

@@ -37,7 +37,16 @@ function Invoke-WinGet([string]$Case, [string[]]$Arguments) {
     $code = $LASTEXITCODE
     $output | Out-File -LiteralPath (Join-Path $work "$Case.log") -Encoding utf8
     $output | ForEach-Object { Write-Host $_ }
-    if ($code -ne 0) { throw "WinGet $Case failed with exit code $code. See dist/winget-install-tests/$Case.log." }
+    if ($code -ne 0) {
+        if ($server) {
+            try {
+                $server | Format-List State, HasMoreData | Out-File -LiteralPath (Join-Path $work 'server.log') -Encoding utf8
+                $server.ChildJobs | ForEach-Object { $_.JobStateInfo.Reason } | Out-File -LiteralPath (Join-Path $work 'server.log') -Append -Encoding utf8
+                Receive-Job $server -Keep -ErrorAction Continue 2>&1 | Out-File -LiteralPath (Join-Path $work 'server.log') -Append -Encoding utf8
+            } catch { Write-Warning "Cannot collect server diagnostics: $($_.Exception.Message)" }
+        }
+        throw "WinGet $Case failed with exit code $code. See dist/winget-install-tests/$Case.log."
+    }
     return ($output -join "`n")
 }
 function New-TestManifest([string]$PackageVersion, [string]$Url, [string]$Hash) {
@@ -153,7 +162,8 @@ try {
     $localManifestsEnabled = $true
 
     $legacy = Join-Path $work 'MouseWithOutBorders-0.1.17-Setup.exe'
-    Invoke-WebRequest -Uri 'https://github.com/aesgalexis/mouse-without-borders/releases/download/v0.1.17/MouseWithOutBorders-0.1.17-Setup.exe' -OutFile $legacy -TimeoutSec 120
+    $legacyUrl = 'https://github.com/aesgalexis/mouse-without-borders/releases/download/v0.1.17/MouseWithOutBorders-0.1.17-Setup.exe'
+    Invoke-WebRequest -Uri $legacyUrl -OutFile $legacy -TimeoutSec 120
     $legacyHash = '753e04db3f757ce41047ac500e71fc3fbf7b1eb156603c4a747276ccf0ab28a8'
     if ((Get-FileHash -LiteralPath $legacy -Algorithm SHA256).Hash -ine $legacyHash) { throw 'Published 0.1.17 installer fixture checksum mismatch.' }
     $currentHash = (Get-FileHash -LiteralPath $InstallerPath -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -161,7 +171,7 @@ try {
     $probe.Start()
     $port = $probe.LocalEndpoint.Port
     $probe.Stop()
-    $files = @{ '/current.exe' = $InstallerPath; '/legacy.exe' = $legacy }
+    $files = @{ '/current.exe' = $InstallerPath }
     $server = Start-Job -ArgumentList $port, $files -ScriptBlock {
         param($Port, $Files)
         $listener = New-Object System.Net.HttpListener
@@ -171,6 +181,7 @@ try {
             while ($listener.IsListening) {
                 $context = $listener.GetContext()
                 try {
+                    Write-Output "$($context.Request.HttpMethod) $($context.Request.RawUrl)"
                     $file = $Files[$context.Request.Url.AbsolutePath]
                     if ($file -and $context.Request.HttpMethod -in @('GET', 'HEAD')) {
                         $context.Response.ContentLength64 = (Get-Item -LiteralPath $file).Length
@@ -180,7 +191,14 @@ try {
                             try { $stream.CopyTo($context.Response.OutputStream) } finally { $stream.Dispose() }
                         }
                     } else { $context.Response.StatusCode = 404 }
-                } finally { $context.Response.Close() }
+                } catch [System.IO.IOException], [System.Net.HttpListenerException] {
+                    # Delivery Optimization can cancel a probe/download. Keep
+                    # serving so its WinINet fallback can open a new connection.
+                    Write-Output "Client disconnected: $($_.Exception.Message)"
+                } finally {
+                    try { $context.Response.Close() }
+                    catch [System.IO.IOException], [System.Net.HttpListenerException] { Write-Output 'Response closed after client disconnected.' }
+                }
             }
         } finally { $listener.Close() }
     }
@@ -192,7 +210,7 @@ try {
     }
     if (-not $ready) { Receive-Job $server; throw 'Loopback fixture server failed to start.' }
     $currentManifest = New-TestManifest $Version "$baseUrl/current.exe" $currentHash
-    $legacyManifest = New-TestManifest '0.1.17' "$baseUrl/legacy.exe" $legacyHash
+    $legacyManifest = New-TestManifest '0.1.17' $legacyUrl $legacyHash
     [void](Invoke-WinGet 'validate-current' @('validate', '--manifest', $currentManifest))
     $identity = Invoke-WinGet 'show-current' @('show', '--manifest', $currentManifest)
     if (-not $identity.Contains('aesgalexis.MouseWithOutBorders')) { throw 'WinGet did not read the exact manifest package identifier.' }
@@ -223,7 +241,15 @@ public static class MwbWinGetNative {
         Write-Output "PASS: WinGet upgrades published 0.1.17 while running ($mode), preserves settings and uninstalls."
     }
 } finally {
-    if ($server) { Stop-Job $server; Remove-Job $server -Force }
+    if ($server) {
+        try {
+            $server | Format-List State, HasMoreData | Out-File -LiteralPath (Join-Path $work 'server-final.log') -Encoding utf8
+            $server.ChildJobs | ForEach-Object { $_.JobStateInfo.Reason } | Out-File -LiteralPath (Join-Path $work 'server-final.log') -Append -Encoding utf8
+            Stop-Job $server
+            Receive-Job $server -Keep -ErrorAction Continue 2>&1 | Out-File -LiteralPath (Join-Path $work 'server-final.log') -Append -Encoding utf8
+        } catch { Write-Warning "Cannot collect final server diagnostics: $($_.Exception.Message)" }
+        finally { Stop-Job $server -ErrorAction SilentlyContinue; Remove-Job $server -Force -ErrorAction SilentlyContinue }
+    }
     Get-Process -Name MouseWithOutBorders -ErrorAction SilentlyContinue |
         Where-Object { $_.Path -ieq $app } | Stop-Process -Force
     if ($localManifestsEnabled) { & $script:winget settings --disable LocalManifestFiles --disable-interactivity | Out-Null }

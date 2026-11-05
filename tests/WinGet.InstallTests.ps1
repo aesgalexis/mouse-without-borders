@@ -79,6 +79,8 @@ function Invoke-WinGet([string]$Case, [string[]]$Arguments, [string]$VerifiedIns
     foreach ($argument in ($Arguments + @('--disable-interactivity', '--verbose-logs'))) { $process.StartInfo.ArgumentList.Add($argument) }
     $started = $false
     $launchConfirmed = $false
+    $pendingLaunchWindow = [IntPtr]::Zero
+    $launchPostedAt = 0.0
     $sinks = @()
     $readers = @()
     try {
@@ -93,9 +95,20 @@ function Invoke-WinGet([string]$Case, [string[]]$Arguments, [string]$VerifiedIns
         $timer = [Diagnostics.Stopwatch]::StartNew()
         while (-not $process.WaitForExit(100)) {
             foreach ($reader in $readers) { while ($reader.Peek() -ge 0) { Write-Host $reader.ReadLine() } }
-            if (-not $launchConfirmed -and $VerifiedInstallerPath -and $Arguments[0] -in @('install', 'upgrade')) {
+            if ($pendingLaunchWindow -ne [IntPtr]::Zero) {
+                if (-not [MwbWinGetNative]::IsWindow($pendingLaunchWindow)) {
+                    $launchConfirmed = $true
+                    $pendingLaunchWindow = [IntPtr]::Zero
+                    Write-Host "Windows closed the launch warning for the verified CI fixture: $([IO.Path]::GetFileName($VerifiedInstallerPath))"
+                } elseif ($timer.Elapsed.TotalSeconds - $launchPostedAt -ge 5) {
+                    Save-NativeDiagnostics "$Case-launch-warning"
+                    throw 'The verified Windows launch dialog did not acknowledge its Run command.'
+                }
+            }
+            if (-not $launchConfirmed -and $pendingLaunchWindow -eq [IntPtr]::Zero -and $VerifiedInstallerPath -and $Arguments[0] -in @('install', 'upgrade')) {
                 $process.Refresh()
-                $button = [MwbWinGetNative]::FindFixtureRunButton($process.MainWindowHandle, [uint32]$process.Id, [IO.Path]::GetFileName($VerifiedInstallerPath))
+                $warningWindow = $process.MainWindowHandle
+                $button = [MwbWinGetNative]::FindFixtureRunButton($warningWindow, [uint32]$process.Id, [IO.Path]::GetFileName($VerifiedInstallerPath))
                 if ($button -ne [IntPtr]::Zero) {
                     $downloadRoot = [IO.Path]::GetFullPath((Join-Path $env:TEMP 'WinGet')).TrimEnd('\') + '\'
                     if (-not [IO.Path]::GetFullPath($VerifiedInstallerPath).StartsWith($downloadRoot, [StringComparison]::OrdinalIgnoreCase) -or
@@ -103,11 +116,16 @@ function Invoke-WinGet([string]$Case, [string[]]$Arguments, [string]$VerifiedIns
                         (Get-FileHash -LiteralPath $VerifiedInstallerPath -Algorithm SHA256).Hash -ine $VerifiedInstallerHash) {
                         throw 'Refusing the CI launch confirmation: the expected WinGet installer path/hash does not match.'
                     }
-                    if (-not [MwbWinGetNative]::PostMessage($button, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero)) {
+                    $buttonId = [MwbWinGetNative]::GetDlgCtrlID($button)
+                    # Notify the dialog directly: BM_CLICK can be ignored when
+                    # the hosted runner's desktop does not activate the dialog.
+                    if ($buttonId -le 0 -or $buttonId -gt 65535 -or
+                        -not [MwbWinGetNative]::PostMessage($warningWindow, 0x0111, [IntPtr]$buttonId, $button)) {
                         throw 'Cannot confirm the verified CI fixture launch.'
                     }
-                    $launchConfirmed = $true
-                    Write-Host "Confirmed the Windows file-launch warning for the verified CI fixture: $([IO.Path]::GetFileName($VerifiedInstallerPath))"
+                    $pendingLaunchWindow = $warningWindow
+                    $launchPostedAt = $timer.Elapsed.TotalSeconds
+                    Write-Host "Requested Run for the verified CI fixture; waiting for the launch warning to close: $([IO.Path]::GetFileName($VerifiedInstallerPath))"
                 }
             }
             if ($timer.Elapsed.TotalSeconds -ge 150) {
@@ -344,6 +362,8 @@ public static class MwbWinGetNative {
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr window, int command);
     [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr FindWindow(string className, string title);
     [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
+    [DllImport("user32.dll")] public static extern int GetDlgCtrlID(IntPtr window);
+    [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr window);
     private delegate bool EnumChildCallback(IntPtr window, IntPtr parameter);
     [DllImport("user32.dll")] private static extern bool EnumChildWindows(IntPtr parent, EnumChildCallback callback, IntPtr parameter);
     [DllImport("user32.dll", CharSet=CharSet.Unicode)] private static extern int GetWindowText(IntPtr window, StringBuilder text, int count);

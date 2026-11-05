@@ -279,7 +279,7 @@ try {
 
     $legacy = Join-Path $work 'MouseWithOutBorders-0.1.17-Setup.exe'
     $legacyUrl = 'https://github.com/aesgalexis/mouse-without-borders/releases/download/v0.1.17/MouseWithOutBorders-0.1.17-Setup.exe'
-    Invoke-WebRequest -Uri $legacyUrl -OutFile $legacy -TimeoutSec 120
+    Invoke-WebRequest -Uri $legacyUrl -OutFile $legacy -TimeoutSec 120 -MaximumRetryCount 3 -RetryIntervalSec 2
     $legacyHash = '753e04db3f757ce41047ac500e71fc3fbf7b1eb156603c4a747276ccf0ab28a8'
     if ((Get-FileHash -LiteralPath $legacy -Algorithm SHA256).Hash -ine $legacyHash) { throw 'Published 0.1.17 installer fixture checksum mismatch.' }
     $currentHash = (Get-FileHash -LiteralPath $InstallerPath -Algorithm SHA256).Hash.ToLowerInvariant()

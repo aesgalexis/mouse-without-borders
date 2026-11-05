@@ -1,14 +1,12 @@
 # WinGet preparation
 
-The repository contains a review candidate for **aesgalexis.MouseWithOutBorders**,
-based on the existing public **0.1.17** installer. This package has not been
-submitted to or accepted by the WinGet community repository.
+The **aesgalexis.MouseWithOutBorders 0.1.18** package was submitted on 2026-11-05:
+[WinGet PR #471495](https://github.com/microsoft/winget-pkgs/pull/471495).
+The request is open for community review; catalog availability is pending acceptance.
 
-Version 0.1.18 moves the application and test projects to .NET 10 LTS without
-changing application logic. The original 0.1.17 candidate remains a reference
-until manifests can be generated from the newly published 0.1.18 installer.
-The MIT license is included in future installer and portable builds. Existing
-0.1.17 downloads are preserved; they are not rebuilt or replaced in place.
+The [public 0.1.18 release](https://github.com/aesgalexis/mouse-without-borders/releases/tag/v0.1.18)
+uses .NET 10 LTS without changing application logic and includes the MIT license
+in installer and portable downloads. Existing versioned downloads are preserved.
 
 ## Package identity
 
@@ -41,7 +39,7 @@ existing explicit private-LAN action described in [INSTALLATION.md](INSTALLATION
 Run from the repository root in Windows PowerShell 5.1 or PowerShell 7:
 
 ```powershell
-./scripts/New-WinGetManifest.ps1 -Version 0.1.17
+./scripts/New-WinGetManifest.ps1 -Version 0.1.18
 ```
 
 The generator reads the exact public release, downloads its Setup.exe and
@@ -51,33 +49,32 @@ Do not calculate a submission hash from a local rebuild: a build of the same
 source can have different bytes from the published download.
 
 The checked-in candidate is under
-`packaging/winget/manifests/a/aesgalexis/MouseWithOutBorders/0.1.17`.
+`packaging/winget/manifests/a/aesgalexis/MouseWithOutBorders/0.1.18`.
 To regenerate the checked-in location, pass
 `-OutputRoot ./packaging/winget/manifests`; the default is
 `dist/winget/manifests`.
 The published Setup.exe hash is:
 
 ```text
-753e04db3f757ce41047ac500e71fc3fbf7b1eb156603c4a747276ccf0ab28a8
+4c60c4a44edf520bf40db448c39e459597eac79764d9d457d1985a467e4dc3a9
 ```
 
 Release URLs must remain version-specific. Both main and tag publication now
 use `gh release create` and skip existing releases. Never delete and recreate an
 existing release or replace its assets to ship these packaging changes. Use a
 new application version for the next release, and regenerate that version's
-manifests after publication. The public 0.1.17 release is currently marked as a
+manifests after publication. The public 0.1.18 release is currently marked as a
 preview; changing that status is a separate release decision.
 
 ## Validate before submission
 
-The checked-in 0.1.17 candidate passed `winget validate` with WinGet
+The submitted 0.1.18 manifests passed `winget validate` with WinGet
 **1.29.380** on **2026-11-05**. Published installer bytes were downloaded and
 verified against both SHA256SUMS.txt and the GitHub asset digest. This does not
 replace the installation checks below. See the [review record](REVIEW-2026-11-05.md).
 
 1. Publish the repository changes so the manifest's `LicenseUrl` resolves to the
-   MIT license. Choose the first submission version. Prefer the next version
-   built with the license bundled; the checked-in 0.1.17 files are a review candidate.
+   MIT license. Use a new release version with the license bundled for subsequent updates.
 2. Run the full Windows workflow for the final release. It includes installer
    checks in a disposable account; do not run installer tests against your daily
    account or a working MWB installation.
@@ -110,7 +107,7 @@ replace the installation checks below. See the [review record](REVIEW-2026-11-05
 6. Copy the three YAML files into the same `manifests/a/aesgalexis/...` path in a
    fork of `microsoft/winget-pkgs`, then open a pull request for review. Community
    validation includes security scans and installation checks; acceptance is
-   determined by that repository. No external submission has been made here.
+   determined by that repository. The initial 0.1.18 submission is linked above.
 
 The existing unsigned installer can be prepared as an Inno package; WinGet
 validation and security scans still apply. Code signing is a distribution

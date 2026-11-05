@@ -29,13 +29,16 @@ The Windows workflow also tests the actual Windows clipboard adapter against
 Unicode text, file-drop and native Preferred DropEffect formats, and verifies
 silent Inno installation, running-app upgrades, registration and uninstall in
 its disposable Windows account. These checks have passed during preparation;
-consult the final 0.1.18 Actions run for the release result.
+the [final 0.1.18 release workflow](https://github.com/aesgalexis/mouse-without-borders/actions/runs/42048252576)
+passed all retained checks and published the release.
 
 The additional local-manifest WinGet harness was removed: Windows security
 dialogs for unsigned local downloads made it unsuitable as a release gate.
 No security-policy adjustments or dialog automation remain in the workflow.
 WinGet manifest validation is separate from the native installer checks;
 the community repository performs its own installation and security validation.
+The public installer hash was verified and its three manifests passed WinGet
+validation before [submission #471495](https://github.com/microsoft/winget-pkgs/pull/471495).
 
 ## Version 0.1.16 global cursor ownership (2026-11-03)
 

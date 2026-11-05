@@ -131,10 +131,22 @@ function Start-TestApp([bool]$Tray) {
 }
 
 try {
-    # Official bootstrap, pinned for repeatable CI. No bootstrap or settings changes run outside the guard above.
-    Install-Module -Name Microsoft.WinGet.Client -RequiredVersion 1.29.380 -Scope CurrentUser -Repository PSGallery -Force -AllowClobber
-    Import-Module Microsoft.WinGet.Client -RequiredVersion 1.29.380
-    Repair-WinGetPackageManager -Version 'v1.29.380' -AllUsers -Force
+    # Prefer the runner's working client. Repair only the CI user's registration;
+    # -AllUsers can select an incomplete provisioned bundle on hosted Server images.
+    $wingetCandidate = Get-Command winget.exe -ErrorAction SilentlyContinue
+    $usableClient = $false
+    if ($wingetCandidate) {
+        try {
+            $clientVersion = (& $wingetCandidate.Source --version 2>$null | Out-String).Trim()
+            $usableClient = $LASTEXITCODE -eq 0 -and $clientVersion -match '^v?(\d+\.\d+\.\d+)$' -and
+                [Version]$Matches[1] -ge [Version]'1.29.380'
+        } catch { $usableClient = $false }
+    }
+    if (-not $usableClient) {
+        Install-Module -Name Microsoft.WinGet.Client -RequiredVersion 1.29.380 -Scope CurrentUser -Repository PSGallery -Force -AllowClobber
+        Import-Module Microsoft.WinGet.Client -RequiredVersion 1.29.380
+        Repair-WinGetPackageManager -Version 'v1.29.380' -Force
+    }
     $script:winget = (Get-Command winget.exe -ErrorAction Stop).Source
     [void](Invoke-WinGet 'client-version' @('--version'))
     [void](Invoke-WinGet 'enable-local-manifests' @('settings', '--enable', 'LocalManifestFiles'))

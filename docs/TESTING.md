@@ -37,6 +37,9 @@ prompt for local manifests and restores the exact policy value/type or original
 absence in `finally`. Defender antivirus and Smart App Control remain unchanged.
 This checks installation behavior; it does not establish SmartScreen reputation
 for the unsigned public download or replace WinGet's community security scans.
+The harness also confirms the local manifest's Windows file-launch warning only
+after checking its owner process, exact dialog, executable name and fixture hash.
+Inno itself must still complete with silent switches and without interaction.
 See [the WinGet test limits](WINGET.md#validate-before-submission).
 
 ## Version 0.1.16 global cursor ownership (2026-11-03)

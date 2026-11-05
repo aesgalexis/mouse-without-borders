@@ -125,6 +125,11 @@ antivirus, Smart App Control or the public installer. These results validate
 installation behavior, not the public download's SmartScreen reputation or
 WinGet's security acceptance. The public installer remains unsigned and community
 security scans still apply. Never apply this CI adjustment on a personal PC.
+Windows can also display an attachment launch confirmation for a local manifest.
+The CI harness confirms only the exact WinGet-owned "Open File - Security Warning"
+whose executable name and downloaded SHA-256 match the verified fixture. It does
+not interact with other windows or installer dialogs. This local-manifest consent
+is separate from the silent Inno installation being tested.
 
 ## Runtime support
 

@@ -65,7 +65,7 @@ function Save-NativeDiagnostics([string]$Case) {
     } catch { Write-Warning "Cannot collect native diagnostics: $($_.Exception.Message)" }
 }
 
-function Invoke-WinGet([string]$Case, [string[]]$Arguments) {
+function Invoke-WinGet([string]$Case, [string[]]$Arguments, [string]$VerifiedInstallerPath = '', [string]$VerifiedInstallerHash = '') {
     $log = Join-Path $work "$Case.log"
     $errorLog = Join-Path $work "$Case-stderr.log"
     if ($Arguments[0] -in @('install', 'upgrade')) { $Arguments += @('--log', (Join-Path $work "$Case-setup.log")) }
@@ -78,6 +78,7 @@ function Invoke-WinGet([string]$Case, [string[]]$Arguments) {
     $process.StartInfo.RedirectStandardError = $true
     foreach ($argument in ($Arguments + @('--disable-interactivity', '--verbose-logs'))) { $process.StartInfo.ArgumentList.Add($argument) }
     $started = $false
+    $launchConfirmed = $false
     $sinks = @()
     $readers = @()
     try {
@@ -92,6 +93,23 @@ function Invoke-WinGet([string]$Case, [string[]]$Arguments) {
         $timer = [Diagnostics.Stopwatch]::StartNew()
         while (-not $process.WaitForExit(100)) {
             foreach ($reader in $readers) { while ($reader.Peek() -ge 0) { Write-Host $reader.ReadLine() } }
+            if (-not $launchConfirmed -and $VerifiedInstallerPath -and $Arguments[0] -in @('install', 'upgrade')) {
+                $process.Refresh()
+                $button = [MwbWinGetNative]::FindFixtureRunButton($process.MainWindowHandle, [uint32]$process.Id, [IO.Path]::GetFileName($VerifiedInstallerPath))
+                if ($button -ne [IntPtr]::Zero) {
+                    $downloadRoot = [IO.Path]::GetFullPath((Join-Path $env:TEMP 'WinGet')).TrimEnd('\') + '\'
+                    if (-not [IO.Path]::GetFullPath($VerifiedInstallerPath).StartsWith($downloadRoot, [StringComparison]::OrdinalIgnoreCase) -or
+                        $VerifiedInstallerHash -notmatch '^[0-9a-fA-F]{64}$' -or
+                        (Get-FileHash -LiteralPath $VerifiedInstallerPath -Algorithm SHA256).Hash -ine $VerifiedInstallerHash) {
+                        throw 'Refusing the CI launch confirmation: the expected WinGet installer path/hash does not match.'
+                    }
+                    if (-not [MwbWinGetNative]::PostMessage($button, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero)) {
+                        throw 'Cannot confirm the verified CI fixture launch.'
+                    }
+                    $launchConfirmed = $true
+                    Write-Host "Confirmed the Windows file-launch warning for the verified CI fixture: $([IO.Path]::GetFileName($VerifiedInstallerPath))"
+                }
+            }
             if ($timer.Elapsed.TotalSeconds -ge 150) {
                 Save-NativeDiagnostics "$Case-timeout"
                 $process.Kill($true)
@@ -310,6 +328,8 @@ try {
     if (-not $ready) { Receive-Job $server; throw 'Loopback fixture server failed to start.' }
     $currentManifest = New-TestManifest $Version "$baseUrl/current.exe" $currentHash
     $legacyManifest = New-TestManifest '0.1.17' $legacyUrl $legacyHash
+    $currentDownloaded = Join-Path $env:TEMP "WinGet\aesgalexis.MouseWithOutBorders.$Version\current.exe"
+    $legacyDownloaded = Join-Path $env:TEMP 'WinGet\aesgalexis.MouseWithOutBorders.0.1.17\MouseWithOutBorders-0.1.17-Setup.exe'
     [void](Invoke-WinGet 'validate-current' @('validate', '--manifest', $currentManifest))
     $identity = Invoke-WinGet 'show-current' @('show', '--manifest', $currentManifest)
     if (-not $identity.Contains('aesgalexis.MouseWithOutBorders')) { throw 'WinGet did not read the exact manifest package identifier.' }
@@ -318,22 +338,52 @@ try {
     Add-Type @'
 using System;
 using System.Runtime.InteropServices;
+using System.Text;
 public static class MwbWinGetNative {
     [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr window, int command);
     [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr FindWindow(string className, string title);
     [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
+    private delegate bool EnumChildCallback(IntPtr window, IntPtr parameter);
+    [DllImport("user32.dll")] private static extern bool EnumChildWindows(IntPtr parent, EnumChildCallback callback, IntPtr parameter);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)] private static extern int GetWindowText(IntPtr window, StringBuilder text, int count);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)] private static extern int GetClassName(IntPtr window, StringBuilder text, int count);
+    private static string TextOf(IntPtr window) {
+        var text = new StringBuilder(32768);
+        GetWindowText(window, text, text.Capacity);
+        return text.ToString();
+    }
+    private static string ClassOf(IntPtr window) {
+        var text = new StringBuilder(256);
+        GetClassName(window, text, text.Capacity);
+        return text.ToString();
+    }
+    public static IntPtr FindFixtureRunButton(IntPtr window, uint processId, string fileName) {
+        if (window == IntPtr.Zero || ClassOf(window) != "#32770" || TextOf(window) != "Open File - Security Warning") return IntPtr.Zero;
+        uint owner;
+        GetWindowThreadProcessId(window, out owner);
+        if (owner != processId) return IntPtr.Zero;
+        bool expectedFileShown = false;
+        IntPtr run = IntPtr.Zero;
+        EnumChildWindows(window, (child, parameter) => {
+            string text = TextOf(child);
+            if (text.IndexOf(fileName, StringComparison.OrdinalIgnoreCase) >= 0) expectedFileShown = true;
+            if (ClassOf(child) == "Button" && text.Replace("&", "") == "Run") run = child;
+            return true;
+        }, IntPtr.Zero);
+        return expectedFileShown ? run : IntPtr.Zero;
+    }
 }
 '@
-    [void](Invoke-WinGet 'fresh-install' @('install', '--manifest', $currentManifest, '--silent', '--scope', 'user', '--location', $testDir, '--accept-package-agreements', '--accept-source-agreements'))
+    [void](Invoke-WinGet 'fresh-install' @('install', '--manifest', $currentManifest, '--silent', '--scope', 'user', '--location', $testDir, '--accept-package-agreements', '--accept-source-agreements') $currentDownloaded $currentHash)
     Assert-Installed $Version -CheckLicense
     Uninstall-TestPackage $currentManifest 'fresh-uninstall'
     Write-Output 'PASS: WinGet silent installation, exact manifest identity, ARP detection, MIT license and uninstall.'
     foreach ($mode in @('window', 'tray')) {
-        [void](Invoke-WinGet "legacy-install-$mode" @('install', '--manifest', $legacyManifest, '--silent', '--scope', 'user', '--location', $testDir, '--accept-package-agreements', '--accept-source-agreements'))
+        [void](Invoke-WinGet "legacy-install-$mode" @('install', '--manifest', $legacyManifest, '--silent', '--scope', 'user', '--location', $testDir, '--accept-package-agreements', '--accept-source-agreements') $legacyDownloaded $legacyHash)
         Assert-Installed '0.1.17'
         $oldApp = Start-TestApp ($mode -eq 'tray')
-        [void](Invoke-WinGet "upgrade-$mode" @('upgrade', '--manifest', $currentManifest, '--silent', '--scope', 'user', '--accept-package-agreements', '--accept-source-agreements'))
+        [void](Invoke-WinGet "upgrade-$mode" @('upgrade', '--manifest', $currentManifest, '--silent', '--scope', 'user', '--accept-package-agreements', '--accept-source-agreements') $currentDownloaded $currentHash)
         if (-not $oldApp.WaitForExit(5000)) { throw "WinGet upgrade did not close the old $mode instance." }
         Assert-Installed $Version -CheckLicense
         Uninstall-TestPackage $currentManifest "uninstall-$mode"

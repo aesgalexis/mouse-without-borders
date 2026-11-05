@@ -116,11 +116,9 @@ function Invoke-WinGet([string]$Case, [string[]]$Arguments, [string]$VerifiedIns
                         (Get-FileHash -LiteralPath $VerifiedInstallerPath -Algorithm SHA256).Hash -ine $VerifiedInstallerHash) {
                         throw 'Refusing the CI launch confirmation: the expected WinGet installer path/hash does not match.'
                     }
-                    $buttonId = [MwbWinGetNative]::GetDlgCtrlID($button)
-                    # Notify the dialog directly: BM_CLICK can be ignored when
-                    # the hosted runner's desktop does not activate the dialog.
-                    if ($buttonId -le 0 -or $buttonId -gt 65535 -or
-                        -not [MwbWinGetNative]::PostMessage($warningWindow, 0x0111, [IntPtr]$buttonId, $button)) {
+                    # Windows documents that BM_CLICK requires an active dialog.
+                    # Activate the verified dialog's queue and send synchronously.
+                    if (-not [MwbWinGetNative]::ClickFixtureRunButton($warningWindow, $button)) {
                         throw 'Cannot confirm the verified CI fixture launch.'
                     }
                     $pendingLaunchWindow = $warningWindow
@@ -364,6 +362,18 @@ public static class MwbWinGetNative {
     [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
     [DllImport("user32.dll")] public static extern int GetDlgCtrlID(IntPtr window);
     [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr window);
+    [DllImport("user32.dll")] private static extern bool IsWindowEnabled(IntPtr window);
+    [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
+    [DllImport("user32.dll")] private static extern bool AttachThreadInput(uint source, uint target, bool attach);
+    [DllImport("user32.dll")] private static extern IntPtr SetActiveWindow(IntPtr window);
+    [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr window);
+    [DllImport("user32.dll")] private static extern IntPtr SetFocus(IntPtr window);
+    [DllImport("user32.dll", SetLastError=true)] private static extern IntPtr SendMessageTimeout(IntPtr window, uint message, IntPtr wParam, IntPtr lParam, uint flags, uint timeout, out IntPtr result);
+    [StructLayout(LayoutKind.Sequential)] private struct Message {
+        public IntPtr Window; public uint Id; public UIntPtr WParam; public IntPtr LParam;
+        public uint Time; public int X; public int Y; public uint Private;
+    }
+    [DllImport("user32.dll")] private static extern bool PeekMessage(out Message message, IntPtr window, uint min, uint max, uint remove);
     private delegate bool EnumChildCallback(IntPtr window, IntPtr parameter);
     [DllImport("user32.dll")] private static extern bool EnumChildWindows(IntPtr parent, EnumChildCallback callback, IntPtr parameter);
     [DllImport("user32.dll", CharSet=CharSet.Unicode)] private static extern int GetWindowText(IntPtr window, StringBuilder text, int count);
@@ -388,10 +398,27 @@ public static class MwbWinGetNative {
         EnumChildWindows(window, (child, parameter) => {
             string text = TextOf(child);
             if (text.IndexOf(fileName, StringComparison.OrdinalIgnoreCase) >= 0) expectedFileShown = true;
-            if (ClassOf(child) == "Button" && text.Replace("&", "") == "Run") run = child;
+            if (ClassOf(child) == "Button" && text.Replace("&", "") == "Run" && IsWindowEnabled(child)) run = child;
             return true;
         }, IntPtr.Zero);
         return expectedFileShown ? run : IntPtr.Zero;
+    }
+    public static bool ClickFixtureRunButton(IntPtr dialog, IntPtr button) {
+        uint processId;
+        uint dialogThread = GetWindowThreadProcessId(dialog, out processId);
+        uint callerThread = GetCurrentThreadId();
+        Message unused;
+        PeekMessage(out unused, IntPtr.Zero, 0, 0, 0);
+        bool attached = callerThread != dialogThread && AttachThreadInput(callerThread, dialogThread, true);
+        try {
+            SetForegroundWindow(dialog);
+            SetActiveWindow(dialog);
+            SetFocus(button);
+            IntPtr result;
+            return SendMessageTimeout(button, 0x00F5, IntPtr.Zero, IntPtr.Zero, 3, 2000, out result) != IntPtr.Zero;
+        } finally {
+            if (attached) AttachThreadInput(callerThread, dialogThread, false);
+        }
     }
 }
 '@

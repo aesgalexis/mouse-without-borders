@@ -33,19 +33,80 @@ $server = $null
 $localManifestsEnabled = $false
 $originalWinGetSettings = $null
 $winGetSettingsChanged = $false
+$testStarted = Get-Date
+
+function Save-NativeDiagnostics([string]$Case) {
+    try {
+        Get-CimInstance Win32_Process | Where-Object { $_.Name -match '(?i)winget|current|setup|smartscreen|consent|MouseWithOutBorders|\.tmp$' } |
+            Select-Object Name, ProcessId, ParentProcessId, ExecutablePath, CommandLine |
+            Format-List | Out-File -LiteralPath (Join-Path $work "$Case-processes.log") -Encoding utf8
+        Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -match '(?i)winget|current|setup|smartscreen|consent|MouseWithOutBorders|\.tmp$' } |
+            Select-Object ProcessName, Id, Path, MainWindowHandle, MainWindowTitle |
+            Format-List | Out-File -LiteralPath (Join-Path $work "$Case-windows.log") -Encoding utf8
+        foreach ($directory in @(
+            (Join-Path $env:LOCALAPPDATA 'Packages\Microsoft.DesktopAppInstaller_8wekyb3d8bbwe\LocalState\DiagOutputDir'),
+            (Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Logs')
+        )) {
+            if (Test-Path -LiteralPath $directory) {
+                Get-ChildItem -LiteralPath $directory -Filter '*.log' -File |
+                    Where-Object { $_.LastWriteTime -ge $testStarted } | Select-Object -First 50 |
+                    ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $work ("native-" + $_.Name)) -Force }
+            }
+        }
+        Get-ChildItem -LiteralPath $env:TEMP -Filter 'Setup Log*.txt' -File |
+            Where-Object { $_.LastWriteTime -ge $testStarted } | Select-Object -First 30 |
+            ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $work ("inno-" + $_.BaseName + '.log')) -Force }
+    } catch { Write-Warning "Cannot collect native diagnostics: $($_.Exception.Message)" }
+}
 
 function Invoke-WinGet([string]$Case, [string[]]$Arguments) {
     $log = Join-Path $work "$Case.log"
-    [IO.File]::WriteAllText($log, '')
-    $output = New-Object 'System.Collections.Generic.List[string]'
+    $errorLog = Join-Path $work "$Case-stderr.log"
+    if ($Arguments[0] -in @('install', 'upgrade')) { $Arguments += @('--log', (Join-Path $work "$Case-setup.log")) }
     Write-Host "Starting WinGet case: $Case"
-    & $script:winget @Arguments --disable-interactivity --verbose-logs 2>&1 | ForEach-Object {
-        $line = [string]$_
-        $output.Add($line)
-        $line | Out-File -LiteralPath $log -Append -Encoding utf8
-        Write-Host $line
+    $process = New-Object Diagnostics.Process
+    $process.StartInfo.FileName = $script:winget
+    $process.StartInfo.UseShellExecute = $false
+    $process.StartInfo.CreateNoWindow = $true
+    $process.StartInfo.RedirectStandardOutput = $true
+    $process.StartInfo.RedirectStandardError = $true
+    foreach ($argument in ($Arguments + @('--disable-interactivity', '--verbose-logs'))) { $process.StartInfo.ArgumentList.Add($argument) }
+    $started = $false
+    $sinks = @()
+    $readers = @()
+    try {
+        # Buffer size 1 keeps diagnostic bytes visible even if the process hangs.
+        $sinks = @([IO.FileStream]::new($log, 'Create', 'Write', 'ReadWrite', 1, $true),
+            [IO.FileStream]::new($errorLog, 'Create', 'Write', 'ReadWrite', 1, $true))
+        $started = $process.Start()
+        $copies = @($process.StandardOutput.BaseStream.CopyToAsync($sinks[0]), $process.StandardError.BaseStream.CopyToAsync($sinks[1]))
+        foreach ($path in @($log, $errorLog)) {
+            $readers += [IO.StreamReader]::new([IO.File]::Open($path, 'Open', 'Read', 'ReadWrite'), [Text.Encoding]::UTF8)
+        }
+        $timer = [Diagnostics.Stopwatch]::StartNew()
+        while (-not $process.WaitForExit(100)) {
+            foreach ($reader in $readers) { while ($reader.Peek() -ge 0) { Write-Host $reader.ReadLine() } }
+            if ($timer.Elapsed.TotalSeconds -ge 150) {
+                Save-NativeDiagnostics "$Case-timeout"
+                $process.Kill($true)
+                [void]$process.WaitForExit(5000)
+                throw "WinGet $Case exceeded 150 seconds; process, window, native WinGet and Setup diagnostics were captured before termination."
+            }
+        }
+        foreach ($copy in $copies) { if (-not $copy.Wait(5000)) { throw "WinGet $Case output stream did not close." } }
+        foreach ($reader in $readers) { while ($reader.Peek() -ge 0) { Write-Host $reader.ReadLine() } }
+        $code = $process.ExitCode
+    } finally {
+        if ($started -and -not $process.HasExited) {
+            Save-NativeDiagnostics "$Case-aborted"
+            $process.Kill($true)
+            [void]$process.WaitForExit(5000)
+        }
+        foreach ($reader in $readers) { $reader.Dispose() }
+        foreach ($sink in $sinks) { $sink.Dispose() }
+        $process.Dispose()
     }
-    $code = $LASTEXITCODE
+    $output = (Get-Content -LiteralPath $log -Raw -Encoding utf8) + (Get-Content -LiteralPath $errorLog -Raw -Encoding utf8)
     if ($code -ne 0) {
         if ($server) {
             try {
@@ -259,6 +320,7 @@ public static class MwbWinGetNative {
         Write-Output "PASS: WinGet upgrades published 0.1.17 while running ($mode), preserves settings and uninstalls."
     }
 } finally {
+    Save-NativeDiagnostics 'final'
     if ($server) {
         try {
             $server | Format-List State, HasMoreData | Out-File -LiteralPath (Join-Path $work 'server-final.log') -Encoding utf8

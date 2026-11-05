@@ -1,0 +1,25 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.12.0.schema.json
+PackageIdentifier: aesgalexis.MouseWithOutBorders
+PackageVersion: 0.1.17
+InstallerType: inno
+Scope: user
+InstallModes:
+- interactive
+- silent
+- silentWithProgress
+InstallerSwitches:
+  Silent: /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-
+  SilentWithProgress: /SILENT /SUPPRESSMSGBOXES /NORESTART /SP-
+UpgradeBehavior: install
+ProductCode: '{BAA10551-2B65-4E83-B102-1F184AE6C673}_is1'
+AppsAndFeaturesEntries:
+- DisplayName: Mouse, with out borders 0.1.17
+  DisplayVersion: 0.1.17
+  Publisher: Mouse, with out borders
+  ProductCode: '{BAA10551-2B65-4E83-B102-1F184AE6C673}_is1'
+Installers:
+- Architecture: x64
+  InstallerUrl: https://github.com/aesgalexis/mouse-without-borders/releases/download/v0.1.17/MouseWithOutBorders-0.1.17-Setup.exe
+  InstallerSha256: 753e04db3f757ce41047ac500e71fc3fbf7b1eb156603c4a747276ccf0ab28a8
+ManifestType: installer
+ManifestVersion: 1.12.0

@@ -197,7 +197,7 @@ internal static class Program
                 throw new Exception("File transfer did not produce distinct, correctly named local files.");
             await using FileStream original = File.OpenRead(source[index]);
             await using FileStream received = File.OpenRead(destination[index]);
-            if (original.Length != received.Length || !(await SHA256.HashDataAsync(original, ct)).SequenceEqual(await SHA256.HashDataAsync(received, ct)))
+            if (original.Length != received.Length || !Enumerable.SequenceEqual(await SHA256.HashDataAsync(original, ct), await SHA256.HashDataAsync(received, ct)))
                 throw new Exception("Received file checksum or size differs from its source.");
         }
     }

@@ -8,8 +8,21 @@ The local Windows Release build passes without warnings. The transport/input
 suite and isolated clipboard-service suite pass with the new MOUSE3 protocol.
 The standard Windows UI suite passes, including the complete MWB3 code fitting
 in its field, saved-code editing and stopping retries for an unverified identity.
-These are source-build checks, not evidence
-of publication or a two-physical-PC test.
+The [0.1.19 Windows workflow](https://github.com/aesgalexis/mouse-without-borders/actions/runs/42055583653)
+passed all checks for commit `2ebe1a0`, including native clipboard, UI/cursor
+state, silent installation, running-app upgrades and uninstall. It published
+the [v0.1.19 preview](https://github.com/aesgalexis/mouse-without-borders/releases/tag/v0.1.19)
+with Setup.exe, the portable ZIP and SHA256SUMS.txt. The release tag points to
+that tested commit.
+
+Both public binaries were then downloaded without executing them. Their sizes
+and SHA-256 hashes match both GitHub asset digests and the published checksum
+manifest. The ZIP includes LICENSE and an executable reporting version 0.1.19.0:
+
+- Setup.exe: `1e2a5dc070c9d667ab67005b7222017bbe0b9598fd41df8d298931b159bee185`
+- Portable ZIP: `25406ad7677a61f7dcac695d87d7e3d07fd764e0230693d939d3bfa3298b6365`
+
+These checks do not establish physical two-PC acceptance.
 
 Security regressions exercise an independently created TLS 1.2 server, certificate
 substitution, a forged greeting, an invalid client proof, a client that never

@@ -25,22 +25,17 @@ The clipboard-service test uses explicit Enumerable.SequenceEqual after C# 14
 changed overload selection around an awaited byte-array comparison; no production
 application logic was changed for the migration.
 
-The Windows workflow additionally runs the actual Windows clipboard adapter
-against Unicode text, file-drop and native Preferred DropEffect formats, plus
-WinGet installation, upgrade, detection and uninstall checks in its disposable
-Windows account. Those tests must not run in a daily account with MWB installed.
-Consult the final 0.1.18 Actions run for their result.
+The Windows workflow also tests the actual Windows clipboard adapter against
+Unicode text, file-drop and native Preferred DropEffect formats, and verifies
+silent Inno installation, running-app upgrades, registration and uninstall in
+its disposable Windows account. These checks have passed during preparation;
+consult the final 0.1.18 Actions run for the release result.
 
-The WinGet test can only run on a disposable GitHub-hosted Windows runner. After
-checking fixture hashes, it temporarily disables the SmartScreen shell reputation
-prompt for local manifests and restores the exact policy value/type or original
-absence in `finally`. Defender antivirus and Smart App Control remain unchanged.
-This checks installation behavior; it does not establish SmartScreen reputation
-for the unsigned public download or replace WinGet's community security scans.
-The harness also confirms the local manifest's Windows file-launch warning only
-after checking its owner process, exact dialog, executable name and fixture hash.
-Inno itself must still complete with silent switches and without interaction.
-See [the WinGet test limits](WINGET.md#validate-before-submission).
+The additional local-manifest WinGet harness was removed: Windows security
+dialogs for unsigned local downloads made it unsuitable as a release gate.
+No security-policy adjustments or dialog automation remain in the workflow.
+WinGet manifest validation is separate from the native installer checks;
+the community repository performs its own installation and security validation.
 
 ## Version 0.1.16 global cursor ownership (2026-11-03)
 

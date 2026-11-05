@@ -116,21 +116,6 @@ The existing unsigned installer can be prepared as an Inno package; WinGet
 validation and security scans still apply. Code signing is a distribution
 improvement to plan, and should not be described as completed.
 
-The local-manifest CI test uses verified installer hashes, WinINet and a temporary
-[SmartScreen shell policy](https://learn.microsoft.com/windows/client-management/mdm/policy-csp-admx-windowsexplorer#enablesmartscreen)
-inside the disposable GitHub-hosted Windows runner. This avoids a reputation
-dialog before an unsigned local fixture starts. The test saves and restores the
-policy value, type and original absence in `finally`; it does not change Defender
-antivirus, Smart App Control or the public installer. These results validate
-installation behavior, not the public download's SmartScreen reputation or
-WinGet's security acceptance. The public installer remains unsigned and community
-security scans still apply. Never apply this CI adjustment on a personal PC.
-Windows can also display an attachment launch confirmation for a local manifest.
-The CI harness confirms only the exact WinGet-owned "Open File - Security Warning"
-whose executable name and downloaded SHA-256 match the verified fixture. It does
-not interact with other windows or installer dialogs. This local-manifest consent
-is separate from the silent Inno installation being tested.
-
 ## Runtime support
 
 Version **0.1.18** targets **.NET 10 LTS**, replacing .NET 8 before its support
@@ -138,7 +123,7 @@ ends on 2026-11-10. Release packages include their own runtime; users do not nee
 to install .NET separately. New runtime patches require new MWB releases because
 updating .NET on a user's PC does not update an existing self-contained download.
 The migration preserves application logic and uses the regression suites,
-real Windows clipboard-format checks and disposable installer/WinGet checks.
+real Windows clipboard-format checks and disposable native installer checks.
 Those checks do not replace physical two-PC acceptance.
 
 ## Official references

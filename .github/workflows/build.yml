@@ -136,13 +136,6 @@ jobs:
           }
           ./tests/Installer.SmokeTests.ps1 -InstallerPath $installer.FullName -LegacyPortablePath $legacy
 
-      - name: Test WinGet install, legacy upgrades and uninstall
-        timeout-minutes: 12
-        shell: pwsh
-        run: |
-          $installer = Get-Item "dist/installer/MouseWithOutBorders-${{ steps.version.outputs.version }}-Setup.exe"
-          ./tests/WinGet.InstallTests.ps1 -InstallerPath $installer.FullName -Version '${{ steps.version.outputs.version }}'
-
       - name: Upload installer diagnostics
         if: always()
         uses: actions/upload-artifact@v4
@@ -150,8 +143,6 @@ jobs:
           name: MouseWithOutBorders-Installer-Logs
           path: |
             dist/installer-tests/*.log
-            dist/winget-install-tests/*.log
-            dist/winget-install-tests/*.yaml
           if-no-files-found: ignore
 
       - name: Generate release checksums

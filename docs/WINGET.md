@@ -116,6 +116,16 @@ The existing unsigned installer can be prepared as an Inno package; WinGet
 validation and security scans still apply. Code signing is a distribution
 improvement to plan, and should not be described as completed.
 
+The local-manifest CI test uses verified installer hashes, WinINet and a temporary
+[SmartScreen shell policy](https://learn.microsoft.com/windows/client-management/mdm/policy-csp-admx-windowsexplorer#enablesmartscreen)
+inside the disposable GitHub-hosted Windows runner. This avoids a reputation
+dialog before an unsigned local fixture starts. The test saves and restores the
+policy value, type and original absence in `finally`; it does not change Defender
+antivirus, Smart App Control or the public installer. These results validate
+installation behavior, not the public download's SmartScreen reputation or
+WinGet's security acceptance. The public installer remains unsigned and community
+security scans still apply. Never apply this CI adjustment on a personal PC.
+
 ## Runtime support
 
 Version **0.1.18** targets **.NET 10 LTS**, replacing .NET 8 before its support

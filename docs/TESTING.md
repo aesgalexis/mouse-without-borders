@@ -31,6 +31,14 @@ WinGet installation, upgrade, detection and uninstall checks in its disposable
 Windows account. Those tests must not run in a daily account with MWB installed.
 Consult the final 0.1.18 Actions run for their result.
 
+The WinGet test can only run on a disposable GitHub-hosted Windows runner. After
+checking fixture hashes, it temporarily disables the SmartScreen shell reputation
+prompt for local manifests and restores the exact policy value/type or original
+absence in `finally`. Defender antivirus and Smart App Control remain unchanged.
+This checks installation behavior; it does not establish SmartScreen reputation
+for the unsigned public download or replace WinGet's community security scans.
+See [the WinGet test limits](WINGET.md#validate-before-submission).
+
 ## Version 0.1.16 global cursor ownership (2026-11-03)
 
 The user confirmed the ghost on physical screens with 0.1.15. A passive 50-second

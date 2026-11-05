@@ -34,6 +34,12 @@ $localManifestsEnabled = $false
 $originalWinGetSettings = $null
 $winGetSettingsChanged = $false
 $testStarted = Get-Date
+$smartScreenSubkey = 'Software\Policies\Microsoft\Windows\System'
+$smartScreenValueName = 'EnableSmartScreen'
+$smartScreenChanged = $false
+$smartScreenExisted = $false
+$originalSmartScreenKind = $null
+$originalSmartScreenValue = $null
 
 function Save-NativeDiagnostics([string]$Case) {
     try {
@@ -243,6 +249,20 @@ try {
     $legacyHash = '753e04db3f757ce41047ac500e71fc3fbf7b1eb156603c4a747276ccf0ab28a8'
     if ((Get-FileHash -LiteralPath $legacy -Algorithm SHA256).Hash -ine $legacyHash) { throw 'Published 0.1.17 installer fixture checksum mismatch.' }
     $currentHash = (Get-FileHash -LiteralPath $InstallerPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    # Local manifests lack the public catalog's trust. After verifying fixture
+    # hashes, suppress only the shell reputation prompt in this disposable runner.
+    # Policy: https://learn.microsoft.com/windows/client-management/mdm/policy-csp-admx-windowsexplorer#enablesmartscreen
+    $policyKey = [Microsoft.Win32.Registry]::LocalMachine.CreateSubKey($smartScreenSubkey)
+    try {
+        $smartScreenExisted = $policyKey.GetValueNames() -contains $smartScreenValueName
+        if ($smartScreenExisted) {
+            $originalSmartScreenKind = $policyKey.GetValueKind($smartScreenValueName)
+            $originalSmartScreenValue = $policyKey.GetValue($smartScreenValueName, $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+        }
+        $smartScreenChanged = $true
+        $policyKey.SetValue($smartScreenValueName, 0, [Microsoft.Win32.RegistryValueKind]::DWord)
+    } finally { $policyKey.Dispose() }
+    Write-Host 'CI-only SmartScreen shell reputation policy temporarily disabled for verified local fixtures; original value and type will be restored.'
     $probe = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Loopback, 0)
     $probe.Start()
     $port = $probe.LocalEndpoint.Port
@@ -320,6 +340,16 @@ public static class MwbWinGetNative {
         Write-Output "PASS: WinGet upgrades published 0.1.17 while running ($mode), preserves settings and uninstalls."
     }
 } finally {
+    if ($smartScreenChanged) {
+        try {
+            $policyKey = [Microsoft.Win32.Registry]::LocalMachine.CreateSubKey($smartScreenSubkey)
+            try {
+                if ($smartScreenExisted) { $policyKey.SetValue($smartScreenValueName, $originalSmartScreenValue, $originalSmartScreenKind) }
+                else { $policyKey.DeleteValue($smartScreenValueName, $false) }
+            } finally { $policyKey.Dispose() }
+            Write-Host 'Restored the original CI SmartScreen policy value and type (or its original absence).'
+        } catch { Write-Warning "Cannot restore CI SmartScreen policy: $($_.Exception.Message)" }
+    }
     Save-NativeDiagnostics 'final'
     if ($server) {
         try {

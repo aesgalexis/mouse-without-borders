@@ -11,5 +11,6 @@
     <Compile Include="../../MouseWithOutBorders/WindowsClipboardAdapter.cs" Link="WindowsClipboardAdapter.cs" />
     <Compile Include="../../MouseWithOutBorders/ClipboardTransfer.cs" Link="ClipboardTransfer.cs" />
     <Compile Include="../../MouseWithOutBorders/MousePeer.cs" Link="MousePeer.cs" />
+    <Compile Include="../../MouseWithOutBorders/SecureTransport.cs" Link="SecureTransport.cs" />
   </ItemGroup>
 </Project>

@@ -11,11 +11,11 @@ internal static class ClipboardTransportTests
     internal static async Task RunAsync()
     {
         await TestRoundTripAndOptIn();
-        await TestLegacyAndWireEncryption();
+        await TestCapabilitiesAndClipboardEncryption();
         await TestPriorityAndCancellation();
         await TestSlowAndFailingSubscribers();
         await TestMalformedFrames();
-        Console.WriteLine("PASS: clipboard opt-in, legacy compatibility, authenticated encryption, bounds, priority and callback isolation.");
+        Console.WriteLine("PASS: clipboard opt-in, authenticated encryption, bounds, priority and callback isolation over TLS.");
     }
 
     private static async Task TestRoundTripAndOptIn()
@@ -61,7 +61,7 @@ internal static class ClipboardTransportTests
         finally { listener.Stop(); }
     }
 
-    private static async Task TestLegacyAndWireEncryption()
+    private static async Task TestCapabilitiesAndClipboardEncryption()
     {
         using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(12));
         using RawPeer raw = await RawPeer.Create(timeout.Token);
@@ -74,11 +74,11 @@ internal static class ClipboardTransportTests
             if (initial.Kind != "capabilities" || initial.Data != 1 || initial.Payload is not null)
                 throw new Exception("New peers did not advertise a small disabled capability frame.");
             peer.ConfigureClipboard(true);
-            // A legacy MOUSE2 endpoint ignores unknown kinds and never advertises support.
+            // A secure mouse-only peer need not advertise clipboard support.
             await raw.SendPacket(new MousePacket("move", Dx: 17), timeout.Token);
-            if ((await mouse.Task.WaitAsync(timeout.Token)).Dx != 17) throw new Exception("Legacy mouse input failed.");
+            if ((await mouse.Task.WaitAsync(timeout.Token)).Dx != 17) throw new Exception("Mouse-only peer input failed.");
             await ExpectThrows<InvalidOperationException>(() => peer.SendClipboardAsync(new byte[] { 1 }, timeout.Token));
-            if ((await raw.ReadPacket(timeout.Token)).Kind != "capabilities") throw new Exception("Unexpected bulk data sent to a legacy peer.");
+            if ((await raw.ReadPacket(timeout.Token)).Kind != "capabilities") throw new Exception("Unexpected bulk data sent to a mouse-only peer.");
             await raw.SendPacket(new MousePacket("capabilities", Data: 3), timeout.Token);
             await Until(() => peer.ClipboardAvailable, timeout.Token);
             byte[] plaintext = Encoding.UTF8.GetBytes("Confidential clipboard text: " + new string('X', 120));
@@ -169,7 +169,7 @@ internal static class ClipboardTransportTests
 
     private static async Task TestMalformedFrames()
     {
-        foreach (string failure in new[] { "cipher", "empty", "oversized-line", "oversized-mouse" })
+        foreach (string failure in new[] { "cipher", "empty", "oversized-line", "oversized-mouse", "reflection", "replay", "bad-mac" })
         {
             using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(10));
             using RawPeer raw = await RawPeer.Create(timeout.Token);
@@ -181,7 +181,11 @@ internal static class ClipboardTransportTests
                 peer.ConfigureClipboard(true);
                 await raw.SendPacket(new MousePacket("capabilities", Data: 3), timeout.Token);
                 await Until(() => peer.ClipboardAvailable, timeout.Token);
-                if (failure == "oversized-line")
+                if (failure is "reflection" or "replay" or "bad-mac")
+                {
+                    await raw.SendInvalidPacket(failure, timeout.Token);
+                }
+                else if (failure == "oversized-line")
                     await raw.Writer.WriteAsync(new string('X', 32769).AsMemory(), timeout.Token); // No newline: allocation must still be bounded.
                 else if (failure == "oversized-mouse")
                     await raw.SendPacket(new MousePacket("move", Payload: new string('X', 4096)), timeout.Token);
@@ -219,7 +223,8 @@ internal static class ClipboardTransportTests
         internal required StreamWriter Writer { get; init; }
         internal required StreamReader Reader { get; init; }
         internal required byte[] Key { get; init; }
-        private string Nonce { get; } = new('A', 48);
+        internal required Stream Transport { get; init; }
+        internal required string Nonce { get; init; }
         private long _sent;
         private long _received;
 
@@ -233,14 +238,15 @@ internal static class ClipboardTransportTests
                 Task<MousePeer> connecting = MousePeer.ConnectAsync("127.0.0.1", key, ct);
                 TcpClient socket = await listener.AcceptTcpClientAsync(ct);
                 socket.NoDelay = true;
-                StreamReader reader = new(socket.GetStream(), Encoding.UTF8, leaveOpen: true);
-                StreamWriter writer = new(socket.GetStream(), new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
-                string nonce = new('A', 48);
-                await writer.WriteLineAsync(("MOUSE2|" + nonce).AsMemory(), ct);
+                var secured = await SecureTransport.AcceptAsync(socket, key, ct);
+                StreamReader reader = new(secured.Stream, Encoding.UTF8, leaveOpen: true);
+                StreamWriter writer = new(secured.Stream, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
+                string nonce = secured.Nonce;
                 string proof = await reader.ReadLineAsync(ct) ?? "";
                 if (proof != "PROOF|" + Mac(key, "CLIENT|" + nonce)) throw new Exception("Raw fixture pairing proof failed.");
                 await writer.WriteLineAsync(("OK|" + Mac(key, "SERVER|" + nonce)).AsMemory(), ct);
-                return new RawPeer { Peer = await connecting, Socket = socket, Reader = reader, Writer = writer, Key = key };
+                return new RawPeer { Peer = await connecting, Socket = socket, Reader = reader, Writer = writer, Key = key,
+                    Transport = secured.Stream, Nonce = nonce };
             }
             finally { listener.Stop(); }
         }
@@ -249,7 +255,7 @@ internal static class ClipboardTransportTests
         {
             string encoded = Convert.ToBase64String(JsonSerializer.SerializeToUtf8Bytes(packet));
             long sequence = ++_sent;
-            string line = $"{sequence}|{encoded}|{Mac(Key, $"{Nonce}|{sequence}|{encoded}")}";
+            string line = $"{sequence}|{encoded}|{Mac(Key, $"MOUSE3|SERVER|{Nonce}|{sequence}|{encoded}")}";
             await Writer.WriteLineAsync(line.AsMemory(), ct);
         }
 
@@ -259,7 +265,7 @@ internal static class ClipboardTransportTests
             {
                 string line = await Reader.ReadLineAsync(ct) ?? throw new IOException("Raw fixture disconnected.");
                 string[] parts = line.Split('|');
-                if (parts.Length != 3 || long.Parse(parts[0]) != ++_received || parts[2] != Mac(Key, $"{Nonce}|{_received}|{parts[1]}"))
+                if (parts.Length != 3 || long.Parse(parts[0]) != ++_received || parts[2] != Mac(Key, $"MOUSE3|CLIENT|{Nonce}|{_received}|{parts[1]}"))
                     throw new Exception("Raw observer detected invalid authentication or sequence.");
                 MousePacket packet = JsonSerializer.Deserialize<MousePacket>(Convert.FromBase64String(parts[1]))!;
                 if (packet.Kind != "ping") return packet;
@@ -275,6 +281,15 @@ internal static class ClipboardTransportTests
             return new MousePacket("clipboard", Payload: Convert.ToBase64String(packed));
         }
 
+        internal async Task SendInvalidPacket(string failure, CancellationToken ct)
+        {
+            string encoded = Convert.ToBase64String(JsonSerializer.SerializeToUtf8Bytes(new MousePacket("ping")));
+            long sequence = failure == "replay" ? _sent : _sent + 1;
+            string direction = failure == "reflection" ? "CLIENT" : "SERVER";
+            string mac = failure == "bad-mac" ? new string('0', 64) : Mac(Key, $"MOUSE3|{direction}|{Nonce}|{sequence}|{encoded}");
+            await Writer.WriteLineAsync($"{sequence}|{encoded}|{mac}".AsMemory(), ct);
+        }
+
         internal byte[] Decrypt(byte[] packed, string direction)
         {
             byte[] plaintext = new byte[packed.Length - 28];
@@ -285,6 +300,6 @@ internal static class ClipboardTransportTests
 
         private byte[] ClipboardKey() => HMACSHA256.HashData(Key, Encoding.UTF8.GetBytes("CLIPBOARD1|" + Nonce));
         private static string Mac(byte[] key, string message) => Convert.ToHexString(HMACSHA256.HashData(key, Encoding.UTF8.GetBytes(message)));
-        public void Dispose() { Peer.Dispose(); Socket.Dispose(); Reader.Dispose(); Writer.Dispose(); }
+        public void Dispose() { Peer.Dispose(); Socket.Dispose(); Transport.Dispose(); Reader.Dispose(); Writer.Dispose(); }
     }
 }

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.19 — Encrypted transport and stronger pairing
+
+- Require TLS 1.2/1.3 for the complete mouse, clipboard and control connection. Verify each connection's certificate pin using the pairing secret before sending a client proof; require client authentication inside TLS.
+- Replace short and legacy keys with versioned MWB3 codes containing 160 random bits. Preserve preferences, clear obsolete remote codes and require both PCs to update and pair again. Never fall back to plaintext.
+- Bind packet authentication to its direction and session. Retain clipboard AES-GCM, bounded queues and heartbeat recovery.
+- Cover certificate substitution, forged greetings, incorrect client proofs, actual TCP confidentiality, TLS tampering, packet reflection/replay, code migration and pairing timeouts in automated tests.
+
 ## 0.1.18 — WinGet packaging and supported runtime
 
 - Add the MIT license to installer and portable packages.

@@ -12,7 +12,8 @@ internal static class Program
         Console.WriteLine("Mouse transport and input smoke tests...");
 
         TestPairingCodes();
-        Console.WriteLine("PASS: short codes, input normalization, legacy keys and saved-code migration.");
+        Console.WriteLine("PASS: 160-bit codes, input normalization, legacy rejection and saved-code migration.");
+        await SecureTransportTests.RunAsync();
         MouseSharingTests.Run();
         CursorMotionGuardTests.Run();
         await BackpressureTests.RunAsync();
@@ -20,8 +21,6 @@ internal static class Program
         byte[] key = MousePeer.ParseKey(MousePeer.NewKey());
         await TestAuthenticatedRoundTrip(key);
         Console.WriteLine("PASS: authenticated mouse data roundtrip.");
-        await TestAuthenticatedRoundTrip(MousePeer.ParseKey("0123456789ABCDEF0123456789ABCDEF"));
-        Console.WriteLine("PASS: legacy pairing keys still authenticate.");
         await TestIncorrectKeyRejected(key);
         Console.WriteLine("PASS: incorrect pairing key denied.");
         await TestStalledPairing(key, afterProof: false);
@@ -30,7 +29,8 @@ internal static class Program
         Console.WriteLine("PASS: stalled pairing response times out and its socket is closed.");
         await TestPairingCancellation(key);
         Console.WriteLine("PASS: user cancellation is preserved during pairing.");
-        await TestOldVersionRejected(key);
+        await TestOldVersionRejected(key, "MOUSE1");
+        await TestOldVersionRejected(key, "MOUSE2");
         Console.WriteLine("PASS: an older app gets a clear update-both-PCs error and its socket is closed.");
         TestMouseInjection();
         Console.WriteLine("PASS: mouse events are encoded correctly and rejected input reports an error.");
@@ -45,23 +45,24 @@ internal static class Program
         for (int i = 0; i < 100; i++)
         {
             string code = MousePeer.NewKey();
-            if (code.Length != 8 || code.Any(c => "01IO".Contains(c)) || MousePeer.ParseKey(code).Length != 8)
-                throw new Exception("Generated pairing code is not eight unambiguous characters.");
+            if (!code.StartsWith("MWB3-", StringComparison.Ordinal) || code.Length != 40 ||
+                MousePeer.ParseKey(code).Any(b => "01IO".Contains((char)b)) || MousePeer.ParseKey(code).Length != 32)
+                throw new Exception("Generated pairing code is not 32 unambiguous random characters with a version prefix.");
         }
 
-        if (!MousePeer.ParseKey("  abcd-23xy  ").SequenceEqual(MousePeer.ParseKey("ABCD23XY")))
+        string generated = MousePeer.NewKey();
+        if (!MousePeer.ParseKey("  " + generated.ToLowerInvariant() + "  ").SequenceEqual(MousePeer.ParseKey(MousePeer.NormalizeKey(generated))))
             throw new Exception("Typing lowercase or pasting a formatted code changes the key.");
-        if (MousePeer.ParseKey("0123456789abcdef0123456789abcdef").Length != 16)
-            throw new Exception("Legacy pairing keys are no longer supported.");
 
-        foreach (string invalid in new[] { "", "ABC2345", "ABC234567", "ABCD!234", "ABCD0123", new string('Z', 32) })
+        foreach (string invalid in new[] { "", "ABCD23XY", "0123456789ABCDEF0123456789ABCDEF", new string('Z', 32),
+            "MWB3-" + new string('Z', 31), "MWB3-" + new string('Z', 33), "MWB3-" + new string('0', 32) })
         {
             try
             {
                 MousePeer.ParseKey(invalid);
                 throw new Exception("Invalid pairing code was accepted.");
             }
-            catch (ArgumentException ex) when (ex.Message.Contains("8-character", StringComparison.Ordinal)) { }
+            catch (ArgumentException ex) when (ex.Message.Contains("MWB3", StringComparison.Ordinal)) { }
         }
 
         AppSettings settings = new()
@@ -70,18 +71,21 @@ internal static class Program
             Role = "Controller", Host = "127.0.0.1", RemoteKey = "FEDCBA9876543210FEDCBA9876543210",
             AutoConnect = true, ExitEdge = "Left"
         };
-        if (!settings.UpgradePairingCode() || settings.PairingKey.Length != 8)
-            throw new Exception("Existing receiver did not migrate to a short code.");
+        if (!settings.UpgradePairingCode() || MousePeer.ParseKey(settings.PairingKey).Length != 32)
+            throw new Exception("Existing receiver did not migrate to a strong code.");
         string upgraded = settings.PairingKey;
         if (settings.UpgradePairingCode() || settings.PairingKey != upgraded || settings.Role != "Controller" ||
-            settings.Host != "127.0.0.1" || settings.RemoteKey != "FEDCBA9876543210FEDCBA9876543210" ||
+            settings.Host != "127.0.0.1" || settings.RemoteKey != "" ||
             !settings.AutoConnect || settings.ExitEdge != "Left")
-            throw new Exception("Code migration changed saved connection settings or a valid short code.");
+            throw new Exception("Code migration changed preferences, retained a legacy remote secret or rotated a valid new code.");
+        settings.RemoteKey = generated;
+        if (settings.UpgradePairingCode() || settings.RemoteKey != generated)
+            throw new Exception("Migration discarded a valid saved secure connection.");
 
-        foreach (string? invalid in new[] { "", "ABCD0123", null })
+        foreach (string? invalid in new[] { "", "ABCD0123", "ABCD23XY", null })
         {
             settings.PairingKey = invalid!;
-            if (!settings.UpgradePairingCode() || MousePeer.ParseKey(settings.PairingKey).Length != 8)
+            if (!settings.UpgradePairingCode() || MousePeer.ParseKey(settings.PairingKey).Length != 32)
                 throw new Exception("Invalid saved code was not replaced.");
         }
     }
@@ -151,7 +155,7 @@ internal static class Program
                     using MousePeer _ = await MousePeer.AcceptAsync(tcp, key, timeout.Token);
                     throw new Exception("Receiver accepted a wrong pairing key.");
                 }
-                catch (UnauthorizedAccessException) { /* expected */ }
+                catch (Exception ex) when (ex is UnauthorizedAccessException or IOException) { /* Client rejects the authenticated certificate pin. */ }
             }, timeout.Token);
 
             byte[] wrong = MousePeer.ParseKey(MousePeer.NewKey());
@@ -175,11 +179,16 @@ internal static class Program
         {
             Task<MousePeer> connection = MousePeer.ConnectAsync("127.0.0.1", key, watchdog.Token);
             using TcpClient socket = await listener.AcceptTcpClientAsync(watchdog.Token);
-            using StreamReader reader = new(socket.GetStream(), leaveOpen: true);
-            using StreamWriter writer = new(socket.GetStream(), leaveOpen: true) { AutoFlush = true };
+            Stream transport = socket.GetStream();
             if (afterProof)
             {
-                await writer.WriteLineAsync(("MOUSE2|" + new string('A', 48)).AsMemory(), watchdog.Token);
+                var secured = await SecureTransport.AcceptAsync(socket, key, watchdog.Token);
+                transport = secured.Stream;
+            }
+            using Stream securedTransport = transport;
+            using StreamReader reader = new(transport, leaveOpen: true);
+            if (afterProof)
+            {
                 string? proof = await reader.ReadLineAsync(watchdog.Token);
                 if (proof is null || !proof.StartsWith("PROOF|", StringComparison.Ordinal))
                     throw new Exception("Controller did not send its pairing proof.");
@@ -232,7 +241,7 @@ internal static class Program
         }
     }
 
-    private static async Task TestOldVersionRejected(byte[] key)
+    private static async Task TestOldVersionRejected(byte[] key, string protocol)
     {
         using CancellationTokenSource watchdog = new(TimeSpan.FromSeconds(12));
         TcpListener listener = new(IPAddress.Loopback, MousePeer.Port);
@@ -243,7 +252,7 @@ internal static class Program
             using TcpClient socket = await listener.AcceptTcpClientAsync(watchdog.Token);
             using StreamWriter writer = new(socket.GetStream(), leaveOpen: true) { AutoFlush = true };
             using StreamReader reader = new(socket.GetStream(), leaveOpen: true);
-            await writer.WriteLineAsync(("MOUSE1|" + new string('A', 48)).AsMemory(), watchdog.Token);
+            await writer.WriteLineAsync((protocol + "|" + new string('A', 48)).AsMemory(), watchdog.Token);
             try
             {
                 using MousePeer _ = await connecting;

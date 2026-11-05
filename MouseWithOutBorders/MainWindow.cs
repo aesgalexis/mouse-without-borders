@@ -183,8 +183,8 @@ internal sealed class MainWindow : Form
             text.ForeColor = Foreground;
             text.BorderStyle = BorderStyle.FixedSingle;
         }
-        _receiverKey.Font = new Font("Consolas", 16, FontStyle.Bold);
-        _hostKey.Font = new Font("Consolas", 14);
+        _receiverKey.Font = new Font("Consolas", 10);
+        _hostKey.Font = new Font("Consolas", 11);
         foreach (ComboBox combo in Controls.OfType<ComboBox>())
         {
             combo.BackColor = Surface;
@@ -666,10 +666,10 @@ internal sealed class MainWindow : Form
             {
                 SettingsStore.Log("Controller connection: " + ex.Message);
                 if (ex is Win32Exception and not SocketException) inputErrorStatus = "Mouse input failed: " + ex.Message;
-                if (!connectedOnce || ex is NotSupportedException)
+                if (!connectedOnce || ex is NotSupportedException or UnauthorizedAccessException)
                 {
                     string message = "Could not connect: " + ex.Message;
-                    if (!_settings.AutoConnect || ex is NotSupportedException)
+                    if (!_settings.AutoConnect || ex is NotSupportedException or UnauthorizedAccessException)
                     {
                         Ui(() =>
                         {
@@ -724,7 +724,7 @@ internal sealed class MainWindow : Form
                     authTimeout.CancelAfter(TimeSpan.FromSeconds(5));
                     peer = await MousePeer.AcceptAsync(tcp, key, authTimeout.Token).ConfigureAwait(false);
                 }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or OperationCanceledException)
+                catch (Exception ex) when (ex is IOException or SocketException or UnauthorizedAccessException or OperationCanceledException)
                 {
                     Ui(() => SetStatus("Pairing failed. Waiting for a valid connection."));
                     continue;

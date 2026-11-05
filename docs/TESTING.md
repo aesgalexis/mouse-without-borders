@@ -2,6 +2,32 @@
 
 This file distinguishes automated checks from hardware testing. Do not claim a feature works on two physical PCs until observed.
 
+## Version 0.1.19 encrypted transport (2026-11-05)
+
+The local Windows Release build passes without warnings. The transport/input
+suite and isolated clipboard-service suite pass with the new MOUSE3 protocol.
+The standard Windows UI suite passes, including the complete MWB3 code fitting
+in its field, saved-code editing and stopping retries for an unverified identity.
+These are source-build checks, not evidence
+of publication or a two-physical-PC test.
+
+Security regressions exercise an independently created TLS 1.2 server, certificate
+substitution, a forged greeting, an invalid client proof, a client that never
+starts TLS, client-side timeout/cancellation, rejection of MOUSE1/MOUSE2, and
+cleanup of failed connections. A TCP proxy captures mouse/clipboard traffic and
+pairing proofs to check that plaintext is absent, then corrupts ciphertext and
+checks that input is rejected and the connection closes. Authenticated-frame
+tests also reject wrong-direction MACs, repeated sequence numbers and bad MACs.
+Migration replaces both legacy key formats, clears obsolete remote codes,
+preserves preferences and keeps new secrets stable across reloads.
+
+Run socket-based suites sequentially: several reserve TCP port 42187. They need
+local TCP access; a sandbox that blocks loopback cannot run these checks.
+The clipboard-service suite uses isolated adapters and checks a complete 25 MiB
+transfer with concurrent mouse input and reverse sharing after reconnecting.
+Physical two-PC latency, Windows 10 Schannel compatibility and installer upgrade
+with re-pairing remain manual acceptance checks.
+
 ## Automated (GitHub Actions / Windows x64)
 
 The published **v0.1.17** commit `0dfb64b` passed the
@@ -308,10 +334,10 @@ tests use a fake native sender to verify event layout, rejected input with and
 without a Windows error code, and continued cleanup after a failed button release.
 These checks do not inject mouse events into the desktop.
 
-Pairing checks cover generated 8-character codes, case/spacing normalization,
-invalid input, migration of existing local keys without changing connection
-preferences, legacy 32-character keys, and authenticated round trips with both
-key formats.
+Pairing checks now cover generated 160-bit MWB3 codes, case/spacing normalization,
+invalid input, migration of existing local keys without changing preferences,
+clearing obsolete remote codes, stable new codes, rejection of both legacy key
+formats, and encrypted authenticated round trips.
 
 Startup UI checks cover the enabled defaults, compatibility with older settings,
 persisted opt-outs, startup-registration failures and checkbox recovery, hidden
@@ -395,7 +421,7 @@ restored afterward, with the pairing code unchanged.
 - [ ] App appears in Start menu and tray; uninstaller removes it
 - [ ] IP/key pairing connects only with correct key
 - [ ] Both PCs initially show a code; the mouse PC's enter-code action opens the IP/code fields
-- [ ] After upgrading an existing receiver, its new 8-character code pairs and persists after restart
+- [ ] After upgrading both PCs, the new MWB3 code pairs and persists after restart
 - [ ] Moving right across PC A outer edge reaches PC B
 - [ ] Moving left across PC B edge returns to PC A
 - [ ] Crossings and returns also work with PC B's own mouse, without a second connection

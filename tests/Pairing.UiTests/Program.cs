@@ -6,6 +6,7 @@ internal static class Program
     private static void Main(string[] args)
     {
         ApplicationConfiguration.Initialize();
+        if (args.Contains("--startup-only", StringComparer.Ordinal)) { StartupUiTests.Run(); return; }
         if (args.Contains("--native-global-control-only", StringComparer.Ordinal)) { PointerVisibilityTests.RunNativeGlobal(legacy: true); return; }
         if (args.Contains("--native-global-parking-only", StringComparer.Ordinal)) { PointerVisibilityTests.RunNativeGlobal(); return; }
         if (args.Contains("--pointer-visibility-only", StringComparer.Ordinal)) { PointerVisibilityTests.Run(); return; }
@@ -37,8 +38,10 @@ internal static class Program
         Button toggle = Find<Button>(window, "ToggleConnection");
 
         if (!controller.Visible || !receiver.Visible || !receiver.Checked || !enterCode.Visible ||
-            !localCode.Visible || localCode.Text.Length != 8 || !localCode.ReadOnly || remoteCode.Visible)
-            throw new Exception("Receiver must show both role choices, a short code and an obvious enter-code action.");
+            !localCode.Visible || localCode.Text != settings.PairingKey || !localCode.Text.StartsWith("MWB3-") || !localCode.ReadOnly || remoteCode.Visible)
+            throw new Exception("Receiver must show both role choices, the secure code and an obvious enter-code action.");
+        if (TextRenderer.MeasureText(localCode.Text, localCode.Font, Size.Empty, TextFormatFlags.NoPadding).Width > localCode.ClientSize.Width - 6)
+            throw new Exception("The full secure pairing code does not fit in its field.");
         SaveScreenshot(window, args, "receiver.png");
 
         enterCode.PerformClick();
@@ -48,12 +51,13 @@ internal static class Program
         SaveScreenshot(window, args, "controller.png");
 
         host.Text = "127.0.0.1";
-        remoteCode.Text = "abcd23xy";
+        string enteredCode = MousePeer.NewKey();
+        remoteCode.Text = enteredCode.ToLowerInvariant();
         receiver.Checked = true;
-        if (settings.RemoteKey != "ABCD23XY" || settings.Host != "127.0.0.1")
+        if (settings.RemoteKey != MousePeer.NormalizeKey(enteredCode) || settings.Host != "127.0.0.1")
             throw new Exception("Switching roles lost the entered connection details.");
         enterCode.PerformClick();
-        if (!remoteCode.Focused || remoteCode.Text != "ABCD23XY")
+        if (!remoteCode.Focused || remoteCode.Text != enteredCode)
             throw new Exception("Returning to connect must preserve and focus the code when an IP is already entered.");
 
         receiver.Checked = true;

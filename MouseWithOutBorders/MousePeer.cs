@@ -20,14 +20,13 @@ internal sealed record MousePacket(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Payload = null);
 
 /// <summary>
-/// One authenticated, two-way TCP connection. Each message has a monotonically
-/// increasing sequence number and a challenge-bound HMAC. No message is accepted
-/// from a peer without the pairing key. Clipboard chunks are also encrypted.
+/// One authenticated, encrypted, two-way TLS connection. Each message also has a
+/// monotonically increasing sequence number and a direction-bound HMAC.
 /// </summary>
 internal sealed class MousePeer : IDisposable
 {
     internal const int Port = 42187;
-    internal const int PairingCodeLength = 8;
+    internal const int PairingCodeLength = 32;
     internal const int MaxClipboardPlaintext = 16 * 1024;
     private const string PairingAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     // JSON is carried as base64 on the wire, never inserted into HTML. Avoid
@@ -35,10 +34,12 @@ internal sealed class MousePeer : IDisposable
     private static readonly JsonSerializerOptions WireJson = new() { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
     private readonly TcpClient _client;
+    private readonly Stream _transport;
     private readonly BoundedLineReader _reader;
     private readonly StreamWriter _writer;
     private readonly byte[] _key;
-    private readonly string _nonce;
+    private readonly string _outgoingContext;
+    private readonly string _incomingContext;
     private readonly byte[] _clipboardKey;
     private readonly byte[] _outgoingClipboardAad;
     private readonly byte[] _incomingClipboardAad;
@@ -64,13 +65,15 @@ internal sealed class MousePeer : IDisposable
     private long _received;
     private int _disposed;
 
-    private MousePeer(TcpClient client, BoundedLineReader reader, StreamWriter writer, byte[] key, string nonce, bool isClient)
+    private MousePeer(TcpClient client, Stream transport, BoundedLineReader reader, StreamWriter writer, byte[] key, string nonce, bool isClient)
     {
         _client = client;
+        _transport = transport;
         _reader = reader;
         _writer = writer;
         _key = key;
-        _nonce = nonce;
+        _outgoingContext = "MOUSE3|" + (isClient ? "CLIENT|" : "SERVER|") + nonce;
+        _incomingContext = "MOUSE3|" + (isClient ? "SERVER|" : "CLIENT|") + nonce;
         _clipboardKey = HMACSHA256.HashData(key, Encoding.UTF8.GetBytes("CLIPBOARD1|" + nonce));
         _outgoingClipboardAad = Encoding.UTF8.GetBytes("CLIPBOARD1|" + (isClient ? "CLIENT|" : "SERVER|") + nonce);
         _incomingClipboardAad = Encoding.UTF8.GetBytes("CLIPBOARD1|" + (isClient ? "SERVER|" : "CLIENT|") + nonce);
@@ -80,10 +83,8 @@ internal sealed class MousePeer : IDisposable
         _ = ClipboardDeliveryLoopAsync();
     }
 
-    private static (BoundedLineReader reader, StreamWriter writer) OpenStreams(TcpClient client)
+    private static (BoundedLineReader reader, StreamWriter writer) OpenStreams(Stream stream)
     {
-        client.NoDelay = true;
-        NetworkStream stream = client.GetStream();
         return (
             new BoundedLineReader(new StreamReader(stream, new UTF8Encoding(false), false, 4096, true)),
             new StreamWriter(stream, new UTF8Encoding(false), 4096, true) { AutoFlush = true });
@@ -95,21 +96,30 @@ internal sealed class MousePeer : IDisposable
     internal static byte[] ParseKey(string code)
     {
         string normalized = NormalizeKey(code);
-        if (normalized.Length == PairingCodeLength && normalized.All(PairingAlphabet.Contains))
-            return Encoding.ASCII.GetBytes(normalized);
+        if (normalized.StartsWith("MWB3", StringComparison.Ordinal) && normalized.Length == PairingCodeLength + 4 &&
+            normalized[4..].All(PairingAlphabet.Contains))
+            return Encoding.ASCII.GetBytes(normalized[4..]);
 
-        // Keep connecting to receivers that still run the original app.
-        if (normalized.Length == 32 && normalized.All(Uri.IsHexDigit))
-            return Convert.FromHexString(normalized);
-
-        throw new ArgumentException("Enter the receiving PC's 8-character pairing code. Older 32-character keys also work.");
+        throw new ArgumentException("Enter the receiving PC's new MWB3 pairing code. Update both PCs and pair again; old codes are no longer accepted.");
     }
 
-    internal static string NewKey() => string.Create(PairingCodeLength, 0, (characters, _) =>
+    internal static string NewKey()
     {
-        for (int i = 0; i < characters.Length; i++)
-            characters[i] = PairingAlphabet[RandomNumberGenerator.GetInt32(PairingAlphabet.Length)];
-    });
+        // 32 independent base-32 characters = 160 random bits. The prefix makes
+        // legacy secrets distinguishable even when they use the same alphabet.
+        string code = string.Create(PairingCodeLength, 0, (characters, _) =>
+        {
+            for (int i = 0; i < characters.Length; i++)
+                characters[i] = PairingAlphabet[RandomNumberGenerator.GetInt32(PairingAlphabet.Length)];
+        });
+        return "MWB3-" + string.Join("-", Enumerable.Range(0, 4).Select(i => code.Substring(i * 8, 8)));
+    }
+
+    internal static string FormatKey(string code)
+    {
+        string secret = Encoding.ASCII.GetString(ParseKey(code));
+        return "MWB3-" + string.Join("-", Enumerable.Range(0, 4).Select(i => secret.Substring(i * 8, 8)));
+    }
 
     private static string Mac(byte[] key, string message) =>
         Convert.ToHexString(HMACSHA256.HashData(key, Encoding.UTF8.GetBytes(message)));
@@ -131,16 +141,14 @@ internal sealed class MousePeer : IDisposable
         deadline.CancelAfter(TimeSpan.FromSeconds(5));
         CancellationToken connecting = deadline.Token;
         TcpClient client = new();
+        Stream? transport = null;
         try
         {
             await client.ConnectAsync(host, Port, connecting);
-            var (reader, writer) = OpenStreams(client);
-            string hello = await reader.ReadLineAsync(4096, connecting) ?? throw new IOException("Receiver disconnected.");
-            if (!hello.StartsWith("MOUSE2|", StringComparison.Ordinal))
-                throw new NotSupportedException("Update MWB on both PCs to use two-way mouse sharing.");
-            string nonce = hello["MOUSE2|".Length..];
-            if (nonce.Length != 48 || !nonce.All(Uri.IsHexDigit))
-                throw new IOException("Invalid receiver challenge.");
+            var secured = await SecureTransport.ConnectAsync(client, key, connecting);
+            transport = secured.Stream;
+            string nonce = secured.Nonce;
+            var (reader, writer) = OpenStreams(transport);
 
             await writer.WriteLineAsync(("PROOF|" + Mac(key, "CLIENT|" + nonce)).AsMemory(), connecting);
             string response = await reader.ReadLineAsync(4096, connecting) ?? throw new IOException("Receiver disconnected.");
@@ -148,40 +156,47 @@ internal sealed class MousePeer : IDisposable
                 !SameMac(key, "SERVER|" + nonce, response["OK|".Length..]))
                 throw new UnauthorizedAccessException("Pairing key rejected by receiver.");
 
-            return new MousePeer(client, reader, writer, key, nonce, isClient: true);
+            return new MousePeer(client, transport, reader, writer, key, nonce, isClient: true);
         }
         catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
         {
             client.Dispose();
+            transport?.Dispose();
             throw new TimeoutException("Receiver connection or pairing timed out after 5 seconds. Check the receiving PC and try again.", ex);
         }
         catch
         {
             client.Dispose();
+            transport?.Dispose();
             throw;
         }
     }
 
     internal static async Task<MousePeer> AcceptAsync(TcpClient client, byte[] key, CancellationToken ct)
     {
+        using CancellationTokenSource deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        deadline.CancelAfter(TimeSpan.FromSeconds(5));
+        Stream? transport = null;
         try
         {
-            var (reader, writer) = OpenStreams(client);
-            string nonce = Convert.ToHexString(RandomNumberGenerator.GetBytes(24));
-            await writer.WriteLineAsync(("MOUSE2|" + nonce).AsMemory(), ct);
-            string proof = await reader.ReadLineAsync(4096, ct) ?? "";
+            var secured = await SecureTransport.AcceptAsync(client, key, deadline.Token);
+            transport = secured.Stream;
+            string nonce = secured.Nonce;
+            var (reader, writer) = OpenStreams(transport);
+            string proof = await reader.ReadLineAsync(4096, deadline.Token) ?? "";
             if (!proof.StartsWith("PROOF|", StringComparison.Ordinal) ||
                 !SameMac(key, "CLIENT|" + nonce, proof["PROOF|".Length..]))
             {
-                await writer.WriteLineAsync("DENIED".AsMemory(), ct);
+                await writer.WriteLineAsync("DENIED".AsMemory(), deadline.Token);
                 throw new UnauthorizedAccessException("Client pairing key rejected.");
             }
-            await writer.WriteLineAsync(("OK|" + Mac(key, "SERVER|" + nonce)).AsMemory(), ct);
-            return new MousePeer(client, reader, writer, key, nonce, isClient: false);
+            await writer.WriteLineAsync(("OK|" + Mac(key, "SERVER|" + nonce)).AsMemory(), deadline.Token);
+            return new MousePeer(client, transport, reader, writer, key, nonce, isClient: false);
         }
         catch
         {
             client.Dispose();
+            transport?.Dispose();
             throw;
         }
     }
@@ -240,7 +255,7 @@ internal sealed class MousePeer : IDisposable
     {
         long seq = ++_sent;
         string payload = Convert.ToBase64String(JsonSerializer.SerializeToUtf8Bytes(packet, WireJson));
-        string signed = $"{_nonce}|{seq}|{payload}";
+        string signed = $"{_outgoingContext}|{seq}|{payload}";
         string line = $"{seq}|{payload}|{Mac(_key, signed)}";
         if (line.Length > (packet.Kind == "clipboard" ? 32768 : 4096))
             throw new IOException("Oversized outgoing message.");
@@ -334,7 +349,7 @@ internal sealed class MousePeer : IDisposable
 
             string[] parts = line.Split('|', 3);
             if (parts.Length != 3 || !long.TryParse(parts[0], out long seq) ||
-                seq != _received + 1 || !SameMac(_key, $"{_nonce}|{seq}|{parts[1]}", parts[2]))
+                seq != _received + 1 || !SameMac(_key, $"{_incomingContext}|{seq}|{parts[1]}", parts[2]))
                 throw new IOException("Invalid or replayed mouse message.");
 
             _received = seq;
@@ -485,6 +500,7 @@ internal sealed class MousePeer : IDisposable
             _clipboardGeneration.Cancel();
         }
         _client.Dispose();
+        _transport.Dispose();
         NotifyClipboardAvailability();
     }
 }

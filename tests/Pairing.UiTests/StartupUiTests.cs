@@ -13,7 +13,8 @@ internal static class StartupUiTests
         TestAutomaticListener();
         TestIncompletePairing();
         TestDelayedReceiver();
-        Console.WriteLine("PASS: startup defaults, persisted opt-out, registry failure recovery, hidden automatic listening, incomplete pairing and retry until the other PC starts.");
+        TestRejectedIdentity();
+        Console.WriteLine("PASS: startup defaults, persisted opt-out, registry failure recovery, hidden listening, incomplete pairing, delayed receiver and rejected identity stopping retries.");
     }
 
     private static void TestDefaultsAndPreferences()
@@ -101,7 +102,7 @@ internal static class StartupUiTests
         receiver.Stop();
         using MainWindow window = Window(new AppSettings
         {
-            Role = "Controller", Host = "127.0.0.1", RemoteKey = "ABCD23XY", MinimizeToTray = false
+            Role = "Controller", Host = "127.0.0.1", RemoteKey = MousePeer.NewKey(), MinimizeToTray = false
         }, _ => { }, _ => { }, autostart: true);
         PumpUntil(() => Find<Label>(window, "ConnectionStatus").Text.Contains("Retrying connection"));
         Assert(!window.Visible && !Find<RadioButton>(window, "ControllerRole").Enabled,
@@ -113,6 +114,26 @@ internal static class StartupUiTests
         using TcpClient client = accepted.GetAwaiter().GetResult();
         window.Close();
         Assert(window.IsDisposed, "Closing must cancel a pending automatic connection.");
+    }
+
+    private static void TestRejectedIdentity()
+    {
+        using TcpListener receiver = new(IPAddress.Loopback, MousePeer.Port);
+        receiver.Start();
+        using MainWindow window = Window(new AppSettings
+        {
+            Role = "Controller", Host = "127.0.0.1", RemoteKey = MousePeer.NewKey(), MinimizeToTray = false
+        }, _ => { }, _ => { }, autostart: true);
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(8));
+        Task<TcpClient> accepting = receiver.AcceptTcpClientAsync(timeout.Token).AsTask();
+        PumpUntil(() => accepting.IsCompleted);
+        using TcpClient client = accepting.GetAwaiter().GetResult();
+        string greeting = $"MOUSE3|{new string('A', 48)}|{new string('B', 64)}|{new string('0', 64)}\n";
+        client.GetStream().Write(System.Text.Encoding.ASCII.GetBytes(greeting));
+        PumpUntil(() => Find<RadioButton>(window, "ControllerRole").Enabled);
+        Assert(Find<Label>(window, "ConnectionStatus").Text.Contains("Check its MWB3 pairing code"),
+            "An unverified identity must stop retries and show an actionable pairing error.");
+        window.Close();
     }
 
     private static MainWindow Window(AppSettings settings, Action<AppSettings> save, Action<bool> startup, bool autostart = false)

@@ -19,7 +19,7 @@ It works with pointing devices attached to either computer and requires no accou
 You need two Windows 10/11 x64 PCs on the same trusted private network.
 
 1. Download the **Setup.exe** from the [releases page](https://github.com/aesgalexis/mouse-without-borders/releases) and install it on both PCs. Installation does not require administrator rights. A portable ZIP is also available.
-2. On the first PC, select **Allow connection**, then **Start receiving**. Note its local IP address and 8-character pairing code.
+2. On the first PC, select **Allow connection**, then **Start receiving**. Note its local IP address and pairing code beginning with **MWB3-**. Use **Copy code** to copy the full code.
 3. On the second PC, select **Connect to other PC**. Enter the first PC's IP address and pairing code, choose the screen edge that leads to it, then select **Connect mouse**.
 4. Move a mouse or touchpad across the shared edge to control the other PC. Cross back to return, or use a pointing device attached to that PC to take control locally.
 
@@ -58,7 +58,11 @@ MWB is currently a **preview**. Automated Windows build, transport, interface an
 
 ## Network and privacy
 
-Use MWB only on a trusted private network. Connections use pairing-key authentication and packet verification. **Mouse traffic is not encrypted**; clipboard payloads use AES-GCM encryption. Do not expose or forward TCP port 42187 to the internet.
+All mouse events, clipboard transfers and session messages travel over **TLS 1.2 or 1.3**. A random **160-bit pairing secret** authenticates the receiver's certificate pin, and the connecting PC proves knowledge of that secret inside TLS. Messages also have direction-bound authentication and sequence checks; clipboard payloads retain their additional AES-GCM protection. No certificate authority or certificate installation is required.
+
+**Upgrading to 0.1.19:** update both PCs and pair again using the new **MWB3-** code. Old 8-character codes and legacy hexadecimal keys are replaced locally, and old saved remote codes are cleared. Preferences are retained. There is no fallback to the unencrypted protocol; 0.1.18 and earlier cannot connect to 0.1.19.
+
+Use MWB on a trusted private network. Encryption does not hide the peers' IP addresses or traffic timing/volume, or protect a compromised PC. Do not expose or forward TCP port 42187 to the internet.
 
 Settings and diagnostic logs are stored locally under `%LOCALAPPDATA%\MouseWithOutBorders`. Keep pairing codes, settings files and diagnostic logs private when reporting problems.
 
@@ -97,6 +101,7 @@ The application icon is generated during the Windows build. The [GitHub Actions 
 
 - [Installation, updates and uninstall](docs/INSTALLATION.md)
 - [Testing and known validation limits](docs/TESTING.md)
+- [Encrypted transport and security model](docs/SECURITY.md)
 - [WinGet package preparation and submission](docs/WINGET.md)
 - [Changelog](CHANGELOG.md)
 

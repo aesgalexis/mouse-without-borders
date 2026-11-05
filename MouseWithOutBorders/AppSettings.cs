@@ -30,22 +30,25 @@ internal sealed class AppSettings
 
     internal bool UpgradePairingCode()
     {
-        string code = MousePeer.NormalizeKey(PairingKey ?? "");
-        if (code.Length == MousePeer.PairingCodeLength)
+        bool changed = false;
+        try
         {
-            try
-            {
-                MousePeer.ParseKey(code);
-                bool changed = PairingKey != code;
-                PairingKey = code;
-                return changed;
-            }
-            catch (ArgumentException) { }
+            string code = MousePeer.FormatKey(PairingKey ?? "");
+            changed = PairingKey != code;
+            PairingKey = code;
         }
-
-        // The receiver always displays a short code, including after an upgrade.
-        PairingKey = MousePeer.NewKey();
-        return true;
+        catch (ArgumentException)
+        {
+            // Rotate every legacy secret, including codes exposed by the old handshake.
+            PairingKey = MousePeer.NewKey();
+            changed = true;
+        }
+        if (!string.IsNullOrEmpty(RemoteKey))
+        {
+            try { MousePeer.ParseKey(RemoteKey); }
+            catch (ArgumentException) { RemoteKey = ""; changed = true; }
+        }
+        return changed;
     }
 }
 

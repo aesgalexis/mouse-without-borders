@@ -4,13 +4,32 @@ This file distinguishes automated checks from hardware testing. Do not claim a f
 
 ## Automated (GitHub Actions / Windows x64)
 
-- [x] .NET Windows Forms restore, build, and self-contained publish (prior build on 2026-10-20)
-- [x] Inno Setup compiler produces Setup.exe (prior build on 2026-10-20)
-- [x] LAN protocol smoke tests: successful authenticated TCP exchange and rejection of wrong key (prior build on 2026-10-20)
-- [ ] **v0.1.1** complete CI including silent install/uninstall verification; see Actions run for current result
-- [ ] SHA-256 manifest attached to v0.1.1 release, after publication
+The published **v0.1.17** commit `0dfb64b` passed the
+[2026-11-03 Windows workflow](https://github.com/aesgalexis/mouse-without-borders/actions/runs/41634161627).
+This is evidence for that published version; new packaging checks added afterward
+must pass in a fresh CI run before their release.
+
+- [x] .NET Windows Forms restore, Release build and self-contained publish
+- [x] Transport, updater, local keyboard, clipboard transfer and clipboard service suites
+- [x] Standard pairing UI and native thread-cursor-state tests
+- [x] Inno Setup compilation, silent install, running-app upgrades and uninstall
+- [x] Installer, portable ZIP and SHA-256 checksums published in v0.1.17
 
 CI checks only what it runs. A successful build does not prove smooth mouse interaction.
+
+## Version 0.1.18 runtime and distribution checks (2026-11-05)
+
+The app and test projects target .NET 10 LTS. Local Release build, UI suite
+compilation and the five isolated runtime smoke suites pass (31 reported groups).
+The clipboard-service test uses explicit Enumerable.SequenceEqual after C# 14
+changed overload selection around an awaited byte-array comparison; no production
+application logic was changed for the migration.
+
+The Windows workflow additionally runs the actual Windows clipboard adapter
+against Unicode text, file-drop and native Preferred DropEffect formats, plus
+WinGet installation, upgrade, detection and uninstall checks in its disposable
+Windows account. Those tests must not run in a daily account with MWB installed.
+Consult the final 0.1.18 Actions run for their result.
 
 ## Version 0.1.16 global cursor ownership (2026-11-03)
 
@@ -383,7 +402,7 @@ restored afterward, with the pairing code unchanged.
 - [ ] Start with Windows and autoconnect persist across sign-out/reboot
 - [ ] Two monitors on one PC, different resolutions, and DPI scaling behave acceptably
 - [ ] Windows Firewall rule only allows private LAN; uninstall removes optional rule
-- [ ] No unintended keyboard, clipboard or file-sharing functionality
+- [ ] Keyboard remapping remains local; clipboard text/files are shared only when enabled on both PCs
 - [ ] UAC/secure desktop limitations communicated accurately
 - [ ] A Windows input rejection appears in receiver status/logs and returns the controller's cursor
 

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.18 — WinGet packaging and supported runtime
+
+- Add the MIT license and include it in future installer and portable packages.
+- Move the app and regression projects to .NET 10 LTS; preserve the existing application logic, settings and protocol.
+- Prepare versioned WinGet manifests and a generator that verifies the published installer before writing package metadata.
+- Keep release publication create-only for both main and version tags, preserving published download hashes.
+- Check per-user package registration, silent installation and uninstall in disposable CI; refresh the validation record and WinGet submission guide.
+- Test WinGet installation, package detection, upgrades and uninstall in disposable Windows CI.
+
 ## 0.1.17 — Check and install updates from the tray
 
 - Add **Check & install updates** to the notification icon's right-click menu. It opens the existing window to show checking, download progress and results.

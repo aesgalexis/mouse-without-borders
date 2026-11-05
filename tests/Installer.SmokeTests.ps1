@@ -10,6 +10,7 @@ $InstallerPath = (Resolve-Path -LiteralPath $InstallerPath).Path
 $LegacyPortablePath = (Resolve-Path -LiteralPath $LegacyPortablePath).Path
 $testDir = Join-Path $env:LOCALAPPDATA 'Programs\MouseWithOutBorders-InstallerCI'
 $app = Join-Path $testDir 'MouseWithOutBorders.exe'
+$uninstallRegistryPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{BAA10551-2B65-4E83-B102-1F184AE6C673}_is1'
 $desktopDir = [Environment]::GetFolderPath('DesktopDirectory')
 $shortcutPath = Join-Path $desktopDir 'MWB Installer CI.lnk'
 $defaultShortcutPath = Join-Path $desktopDir 'Mouse, with out borders.lnk'
@@ -18,7 +19,7 @@ New-Item -ItemType Directory -Path $logDir -Force | Out-Null
 $logDir = (Resolve-Path -LiteralPath $logDir).Path
 
 # Do not overwrite an existing user's app registration or settings during tests.
-$registration = Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{BAA10551-2B65-4E83-B102-1F184AE6C673}_is1' -ErrorAction SilentlyContinue
+$registration = Get-ItemProperty -LiteralPath $uninstallRegistryPath -ErrorAction SilentlyContinue
 if ($registration -and $registration.InstallLocation.TrimEnd('\') -ine $testDir.TrimEnd('\')) {
     throw 'Use a disposable Windows account: MWB is already installed elsewhere.'
 }
@@ -59,6 +60,47 @@ function Invoke-Setup([string]$CaseName, [switch]$AppUpdate, [switch]$DesktopSho
 function Assert-DefaultShortcut([bool]$Expected) {
     if ((Test-Path -LiteralPath $defaultShortcutPath) -ne $Expected) {
         throw "Unexpected desktop shortcut state: expected present=$Expected."
+    }
+}
+
+function Assert-PackageRegistration([Version]$InstalledVersion) {
+    if (-not (Test-Path -LiteralPath $uninstallRegistryPath)) {
+        throw 'WinGet package detection failed: the stable per-user uninstall registry key is missing.'
+    }
+    $key = Get-Item -LiteralPath $uninstallRegistryPath
+    try {
+        $expectedVersion = $InstalledVersion.ToString(3)
+        $expectedValues = @{
+            DisplayName = 'Mouse, with out borders ' + $expectedVersion
+            Publisher = 'Mouse, with out borders'
+            DisplayVersion = $expectedVersion
+        }
+        foreach ($name in $expectedValues.Keys) {
+            $actual = [string]$key.GetValue($name)
+            if ($actual -cne $expectedValues[$name]) {
+                throw "WinGet package detection failed: $name is '$actual', expected '$($expectedValues[$name])'."
+            }
+        }
+        $location = [string]$key.GetValue('InstallLocation')
+        if ($location.TrimEnd('\') -ine $testDir.TrimEnd('\')) {
+            throw "WinGet package detection failed: InstallLocation is '$location', expected '$testDir'."
+        }
+        $quietUninstall = [string]$key.GetValue('QuietUninstallString')
+        $uninstallerPath = Join-Path $testDir 'unins000.exe'
+        if ($quietUninstall -notmatch ('^(?i)"' + [regex]::Escape($uninstallerPath) + '"\s+') -or
+            $quietUninstall -notmatch '(?i)(?:^|\s)/(?:VERYSILENT|SILENT)(?:\s|$)') {
+            throw 'WinGet silent uninstall failed: QuietUninstallString must reference this installation and contain a silent switch.'
+        }
+    } finally {
+        $key.Dispose()
+    }
+    $licensePath = Join-Path $testDir 'LICENSE'
+    if (-not (Test-Path -LiteralPath $licensePath -PathType Leaf) -or
+        (Get-Item -LiteralPath $licensePath).Length -eq 0) {
+        throw 'The installed package must include a nonempty LICENSE file.'
+    }
+    if (Get-Process -Name MouseWithOutBorders -ErrorAction SilentlyContinue) {
+        throw 'A silent installation must not start MWB. Only the explicit in-app update may reopen it.'
     }
 }
 
@@ -105,6 +147,8 @@ try {
     Assert-DefaultShortcut $false
     Write-Output 'PASS: the desktop shortcut is unchecked by default on a fresh installation.'
     $installedVersion = [Version](Get-Item -LiteralPath $app).VersionInfo.FileVersion
+    Assert-PackageRegistration $installedVersion
+    Write-Output 'PASS: silent installation preserves the WinGet detection/uninstall contract, includes LICENSE and does not launch MWB.'
     $expectedIconPath = Join-Path $testDir ('app-' + $installedVersion.ToString(3) + '.ico')
     $shell = New-Object -ComObject WScript.Shell
     $shortcut = $shell.CreateShortcut($shortcutPath)
@@ -184,6 +228,9 @@ try {
     if ($uninstall.ExitCode -ne 0) { throw "Uninstall exited $($uninstall.ExitCode)." }
     if (-not $runningApp.WaitForExit(5000)) { throw 'Uninstall left MWB running.' }
     if (Test-Path -LiteralPath $app) { throw 'EXE still present after uninstall.' }
+    if (Test-Path -LiteralPath $uninstallRegistryPath) {
+        throw 'WinGet package detection failed: the uninstall registry key remains after uninstall.'
+    }
     Write-Output 'PASS: uninstall while MWB is running in the tray.'
 } finally {
     Remove-Item -LiteralPath $shortcutPath -Force -ErrorAction SilentlyContinue

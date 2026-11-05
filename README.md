@@ -73,7 +73,7 @@ Use **Diagnostic log** in the main window to inspect connection and input errors
 
 ## Building from source
 
-Requires Windows and the **.NET 8 SDK**.
+Requires Windows and the **.NET 10 SDK**.
 
 ```powershell
 dotnet build MouseWithOutBorders/MouseWithOutBorders.csproj -c Release
@@ -97,4 +97,9 @@ The application icon is generated during the Windows build. The [GitHub Actions 
 
 - [Installation, updates and uninstall](docs/INSTALLATION.md)
 - [Testing and known validation limits](docs/TESTING.md)
+- [WinGet package preparation and submission](docs/WINGET.md)
 - [Changelog](CHANGELOG.md)
+
+## License
+
+MWB is licensed under the [MIT License](LICENSE).

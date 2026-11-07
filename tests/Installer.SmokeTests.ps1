@@ -15,8 +15,6 @@ $desktopDir = [Environment]::GetFolderPath('DesktopDirectory')
 $shortcutPath = Join-Path $desktopDir 'MWB Installer CI.lnk'
 $defaultShortcutPath = Join-Path $desktopDir 'Mouse, with out borders.lnk'
 $logDir = Join-Path $PSScriptRoot '..\dist\installer-tests'
-New-Item -ItemType Directory -Path $logDir -Force | Out-Null
-$logDir = (Resolve-Path -LiteralPath $logDir).Path
 
 # Do not overwrite an existing user's app registration or settings during tests.
 $registration = Get-ItemProperty -LiteralPath $uninstallRegistryPath -ErrorAction SilentlyContinue
@@ -29,6 +27,10 @@ if (Get-Process -Name MouseWithOutBorders -ErrorAction SilentlyContinue) {
 if ((Test-Path -LiteralPath $shortcutPath) -or (Test-Path -LiteralPath $defaultShortcutPath)) {
     throw 'Use a disposable Windows account: an MWB desktop shortcut already exists.'
 }
+. (Join-Path $PSScriptRoot '..\scripts\Artifacts.ps1')
+Remove-MwbGeneratedDirectory $logDir (Join-Path $PSScriptRoot '..\dist')
+New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+$logDir = (Resolve-Path -LiteralPath $logDir).Path
 Add-Type @'
 using System;
 using System.Runtime.InteropServices;
@@ -237,4 +239,5 @@ try {
     Remove-Item -LiteralPath $defaultShortcutPath -Force -ErrorAction SilentlyContinue
     Get-Process -Name MouseWithOutBorders -ErrorAction SilentlyContinue |
         Where-Object { $_.Path -ieq $app } | Stop-Process -Force
+    Remove-MwbGeneratedDirectory (Join-Path $logDir 'legacy') $logDir
 }

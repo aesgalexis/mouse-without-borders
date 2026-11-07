@@ -7,7 +7,8 @@ param(
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 Set-StrictMode -Version Latest
-if (-not $OutputRoot) { $OutputRoot = Join-Path $PSScriptRoot '..\dist\winget\manifests' }
+$useDefaultOutput = -not $OutputRoot
+if ($useDefaultOutput) { $OutputRoot = Join-Path $PSScriptRoot '..\dist\winget\manifests' }
 if (-not $Version) {
     [xml]$project = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\MouseWithOutBorders\MouseWithOutBorders.csproj')
     $Version = [string]$project.Project.PropertyGroup.Version
@@ -118,6 +119,10 @@ ManifestType: installer
 ManifestVersion: 1.28.0
 "@
     $destination = [IO.Path]::GetFullPath((Join-Path $OutputRoot "a\aesgalexis\MouseWithOutBorders\$Version"))
+    if ($useDefaultOutput) {
+        . (Join-Path $PSScriptRoot 'Artifacts.ps1')
+        Remove-MwbGeneratedDirectory $OutputRoot (Join-Path $PSScriptRoot '..\dist')
+    }
     New-Item -ItemType Directory -Path $destination -Force | Out-Null
     $encoding = New-Object System.Text.UTF8Encoding($false)
     [IO.File]::WriteAllText((Join-Path $destination "$packageId.yaml"), $versionYaml + "`n", $encoding)

@@ -10,7 +10,9 @@ internal static class Program
 {
     private static async Task Main()
     {
-        string root = Path.GetFullPath(Path.Combine(Environment.CurrentDirectory, "dist", "clipboard-service-tests", Guid.NewGuid().ToString("N")));
+        string root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "clipboard-service-tests"));
+        // Reuse one sandbox, including after a failed run. Never touch real clipboard data.
+        if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
         Directory.CreateDirectory(root);
         using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(90));
         ConcurrentQueue<string> status = new();
@@ -151,7 +153,7 @@ internal static class Program
         if (passed)
         {
             // Only remove this run's generated source and cache files.
-            string allowedRoot = Path.GetFullPath(Path.Combine(Environment.CurrentDirectory, "dist", "clipboard-service-tests")) + Path.DirectorySeparatorChar;
+            string allowedRoot = Path.GetFullPath(AppContext.BaseDirectory).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
             if (!root.StartsWith(allowedRoot, StringComparison.OrdinalIgnoreCase)) throw new Exception("Unexpected cleanup root.");
             Directory.Delete(root, recursive: true);
         }

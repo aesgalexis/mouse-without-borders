@@ -74,6 +74,18 @@ try {
     }
     Write-Output 'PASS: verified fixture generates three manifests with the published hash, user scope, ARP metadata and MIT license.'
 
+    # Copy the generator so its default output stays inside this test fixture.
+    $copiedScripts = Join-Path $testRoot 'default-output/scripts'
+    New-Item -ItemType Directory -Path $copiedScripts -Force | Out-Null
+    Copy-Item $generator, (Join-Path $PSScriptRoot '../scripts/Artifacts.ps1') $copiedScripts
+    $copiedGenerator = Join-Path $copiedScripts 'New-WinGetManifest.ps1'
+    & $copiedGenerator -Version '0.1.17' | Out-Null
+    $defaultManifests = Join-Path $testRoot 'default-output/dist/winget/manifests'
+    Set-Content (Join-Path $defaultManifests 'obsolete.yaml') 'old manifest'
+    & $copiedGenerator -Version '0.1.17' | Out-Null
+    if (@(Get-ChildItem $defaultManifests -Recurse -File).Count -ne 3) { throw 'Default manifests accumulated between runs.' }
+    Write-Output 'PASS: default WinGet output replaces obsolete manifests on repeated generation.'
+
     Reset-Fixture
     $script:checksumBytes = [Text.Encoding]::UTF8.GetBytes(('0' * 64) + " *$script:assetName`n")
     $fixture.ChecksumBytes = $script:checksumBytes

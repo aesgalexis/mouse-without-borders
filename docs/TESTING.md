@@ -2,6 +2,58 @@
 
 This file distinguishes automated checks from hardware testing. Do not claim a feature works on two physical PCs until observed.
 
+## Version 0.1.20 notification icon persistence (2026-11-06)
+
+The Windows 11 tray menu adds a saved, enabled-by-default **Keep icon visible
+next to clock** option. The standard UI suite covers delayed registration,
+taskbar-recreation messages while hidden, MWB-only executable matching, avoiding
+redundant writes/refreshes, registry error recovery, saved opt-out, save failure
+rollback and disposal. Real startup and tray-preference writes are replaced by
+callbacks in that suite.
+
+The opt-in `--native-tray-visibility-only` UI check exercises the real Windows 11
+preference, icon re-registration and close-to-tray retention. It uses only the
+test executable's entries and restores their previous promotion values. It does
+not restart Explorer or install input hooks. `Shell_NotifyIconGetRect` can return
+the overflow chevron's rectangle, so this check proves registration and saved
+preference, not visual placement outside the overflow.
+
+Windows does not expose a public API to force icon promotion. MWB's Windows 11
+per-icon preference is best effort; Windows 10 uses manual taskbar settings.
+Visual placement, sign-in/reboot and an actual Explorer restart remain manual
+acceptance checks. Run the focused isolated checks with
+`dotnet run --project tests/Pairing.UiTests/Pairing.UiTests.csproj -c Release -- --tray-visibility-only`.
+
+Local validation passed: the complete `scripts/test.ps1` suite, the focused native
+check and self-contained publish/ZIP/Inno packaging. The restricted build emitted
+NU1900 because it could not reach the NuGet vulnerability feed; compilation and
+packaging completed. The existing per-user installation was then updated to
+0.1.20.0 and remained running with its own `IsPromoted=1` entry. Visual placement
+was not independently confirmed by the automation API.
+
+## Build artifact cleanup (2026-11-06)
+
+- Windows Release compilation passed with zero warnings/errors.
+- Two real self-contained publish/ZIP/Inno builds passed through `scripts/build.ps1`.
+  The second left exactly four distribution files, with no staging or previous
+  directory. ZIP entries (EXE + LICENSE) and both package hashes were verified.
+- The packaged executable loaded its bundled runtime and version 0.1.19.0 entry
+  assembly in a startup-hook probe, which exited before application settings or
+  registry access. The full application UI was exercised by the isolated UI suite.
+- `scripts/test.ps1` passed all six runtime/UI suites and the offline manifest
+  and artifact lifecycle checks. Socket suites required execution outside the
+  restricted sandbox. One optional symlink-creation case was skipped for missing
+  Windows privilege; path/link rejection has other fixture coverage.
+- Artifact lifecycle regression checks passed for repeated versions, stale
+  packages, publish/compiler failure, interrupted replacement, concurrent build
+  rejection and cleanup root validation. Default WinGet output replacement passed.
+- PowerShell parsing, Git whitespace checks and generated-path ignore checks passed.
+- Native clipboard and actual installer install/upgrade/uninstall checks were not
+  run on the developer account; they remain in the disposable Windows CI workflow.
+  The modified remote workflow has not been dispatched during this cleanup.
+
+See [build output ownership and cleanup](BUILDING.md).
+
 ## Version 0.1.19 encrypted transport (2026-11-05)
 
 The local Windows Release build passes without warnings. The transport/input

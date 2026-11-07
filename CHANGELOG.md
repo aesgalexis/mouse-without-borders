@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.20 — Notification icon visibility and connection status
+
+- Enable **Keep icon visible next to clock** by default on Windows 11. Reapply only the running MWB executable's notification-area preference after startup, Explorer recreation and periodic checks, including when the main window is closed to the tray.
+- Show the tray icon in gray while disconnected, listening or retrying. Restore its blue color during an authenticated sharing session.
+- Save an explicit opt-out in the tray menu, stop enforcement on exit, and offer **Notification icon settings...** for manual Windows configuration. Windows 10 keeps manual control; Windows 11 promotion is best effort because Windows has no public API for it.
+- Cover delayed registration, shell recreation, registry failures, exact executable matching, preference persistence and disposal without modifying real tray settings in the standard suite. An optional Windows 11 check verifies the real visibility preference, icon refresh and close-to-tray retention.
+
 ## 0.1.19 — Encrypted transport and stronger pairing
 
 - Require TLS 1.2/1.3 for the complete mouse, clipboard and control connection. Verify each connection's certificate pin using the pairing secret before sending a client proof; require client authentication inside TLS.

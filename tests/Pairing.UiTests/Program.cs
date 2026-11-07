@@ -6,6 +6,8 @@ internal static class Program
     private static void Main(string[] args)
     {
         ApplicationConfiguration.Initialize();
+        if (args.Contains("--tray-visibility-only", StringComparer.Ordinal)) { TrayVisibilityUiTests.Run(); return; }
+        if (args.Contains("--native-tray-visibility-only", StringComparer.Ordinal)) { TrayVisibilityUiTests.RunNative(); return; }
         if (args.Contains("--startup-only", StringComparer.Ordinal)) { StartupUiTests.Run(); return; }
         if (args.Contains("--native-global-control-only", StringComparer.Ordinal)) { PointerVisibilityTests.RunNativeGlobal(legacy: true); return; }
         if (args.Contains("--native-global-parking-only", StringComparer.Ordinal)) { PointerVisibilityTests.RunNativeGlobal(); return; }
@@ -112,6 +114,7 @@ internal static class Program
         Console.WriteLine("PASS: second-instance requests restore the same hidden, minimized and visible window.");
         UpdaterUiTests.Run();
         StartupUiTests.Run();
+        TrayVisibilityUiTests.Run();
         ElevationUiTests.Run();
         RobustnessUiTests.Run();
         InputRecoveryTests.Run();

@@ -14,6 +14,7 @@ internal sealed class AppSettings
     public bool AutoConnect { get; set; } = true;
     public bool StartWithWindows { get; set; } = true;
     public bool MinimizeToTray { get; set; } = true;
+    public bool KeepTrayIconVisible { get; set; } = true;
     public bool ShareClipboard { get; set; }
     public bool KeyRemappingEnabled { get; set; }
     public List<KeyMapping> KeyMappings { get; set; } = [];

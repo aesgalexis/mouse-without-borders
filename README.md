@@ -28,6 +28,8 @@ If Windows Firewall prompts you, allow MWB on private networks. The receiving PC
 ## Everyday use
 
 - **Opening and closing:** closing the window keeps MWB running in the notification area by default. Open MWB again from its shortcut or double-click the tray icon to show the window. Choose **Exit** from the tray menu to quit.
+- **Connection status:** the tray icon is gray while disconnected, waiting or retrying. It turns blue when a sharing session is connected.
+- **Visible next to the clock:** on Windows 11, **Keep icon visible next to clock** is enabled by default in the tray menu. MWB reapplies its own visibility preference at startup, after Explorer recreates the taskbar and every 30 seconds. Turn it off to let Windows manage visibility manually; this opt-out is saved across restarts and updates. Promotion uses an internal Windows preference and is best effort. On Windows 10, or if a Windows change prevents promotion, use **Notification icon settings...** or drag MWB out of the hidden-icons menu. The icon is present while MWB is running.
 - **Startup:** **Start with Windows** and **Connect automatically** are enabled by default. You can turn either option off; preferences and pairing details are retained across updates.
 - **Stopping sharing:** press **Ctrl+Alt+F12**, or choose **Stop mouse sharing** from the tray menu. The shortcut also works while the window is hidden, provided Windows has not assigned it to another application.
 - **Updates:** select **Check & install updates** from the main window or the tray icon's right-click menu to check GitHub Releases, including previews. The tray action opens the window to show progress and results. MWB verifies the download's SHA-256 checksum before installing and restarting. Updates are checked only on request. Updating a portable copy installs the per-user application rather than replacing the portable executable.
@@ -83,19 +85,23 @@ Requires Windows and the **.NET 10 SDK**.
 dotnet build MouseWithOutBorders/MouseWithOutBorders.csproj -c Release
 ```
 
-To publish a self-contained executable:
+To build the self-contained executable, portable ZIP, installer and checksums,
+install [Inno Setup 6](https://jrsoftware.org/isinfo.php), then run:
 
 ```powershell
-dotnet publish MouseWithOutBorders/MouseWithOutBorders.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o dist/app
+./scripts/build.ps1
 ```
 
-To build the installer, install [Inno Setup 6](https://jrsoftware.org/isinfo.php), then run:
+The complete latest distribution is in `dist/current`. Each successful build
+replaces it; a failed build keeps the previous complete output. Temporary publish
+files and duplicate runtime copies in `bin`/`obj` are removed automatically.
+No version history is stored locally. See [build output and cleanup](docs/BUILDING.md).
 
-```powershell
-& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer/MouseWithOutBorders.iss
-```
-
-The application icon is generated during the Windows build. The [GitHub Actions workflow](.github/workflows/build.yml) contains the automated test and release commands. Clipboard tests use isolated data and do not modify your clipboard.
+Run the isolated developer checks with `./scripts/test.ps1`. This removes test
+outputs afterwards and does not access your clipboard or install the application.
+Native clipboard and install/upgrade/uninstall checks run in disposable Windows CI.
+The application icon is generated during the Windows build. The
+[GitHub Actions workflow](.github/workflows/build.yml) uses the same packaging script.
 
 ## Documentation
 

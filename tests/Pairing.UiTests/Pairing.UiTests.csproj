@@ -28,6 +28,7 @@
     <Compile Include="../../MouseWithOutBorders/HiddenPointerWindow.cs" Link="HiddenPointerWindow.cs" />
     <Compile Include="../../MouseWithOutBorders/GitHubAppUpdater.cs" Link="GitHubAppUpdater.cs" />
     <Compile Include="../../MouseWithOutBorders/MainWindow.cs" Link="MainWindow.cs" />
+    <Compile Include="../../MouseWithOutBorders/TrayIconVisibility.cs" Link="TrayIconVisibility.cs" />
     <Compile Include="../../MouseWithOutBorders/AppSettings.cs" Link="AppSettings.cs" />
     <Compile Include="../../MouseWithOutBorders/MousePeer.cs" Link="MousePeer.cs" />
     <Compile Include="../../MouseWithOutBorders/SecureTransport.cs" Link="SecureTransport.cs" />

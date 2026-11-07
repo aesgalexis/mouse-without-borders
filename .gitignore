@@ -4,4 +4,9 @@
 *.user
 *.suo
 dist/
+# One reusable local tool install/cache; never copy these into release folders.
+.tools/
+.cache/
+# Existing local diagnostics/settings rescued from the old dist history.
+.local/
 MouseWithOutBorders/assets/app.ico

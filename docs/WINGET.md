@@ -52,7 +52,8 @@ The checked-in candidate is under
 `packaging/winget/manifests/a/aesgalexis/MouseWithOutBorders/0.1.18`.
 To regenerate the checked-in location, pass
 `-OutputRoot ./packaging/winget/manifests`; the default is
-`dist/winget/manifests`.
+`dist/winget/manifests`. Each generation replaces this default output; use an
+explicit `-OutputRoot` when preparing manifests that must be kept separately.
 The published Setup.exe hash is:
 
 ```text

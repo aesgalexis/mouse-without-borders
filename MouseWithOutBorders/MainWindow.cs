@@ -18,6 +18,7 @@ internal sealed class MainWindow : Form
     private static readonly Color Accent = DarkTheme.Accent;
     private static readonly uint InstallerExitMessage =
         NativeMouse.RegisterWindowMessage("MouseWithOutBorders.ExitForUpdate.79DBA1BD");
+    private static readonly uint TaskbarCreatedMessage = NativeMouse.RegisterWindowMessage("TaskbarCreated");
 
     private readonly AppSettings _settings;
     private readonly Action<AppSettings> _saveSettings;
@@ -95,9 +96,15 @@ internal sealed class MainWindow : Form
     };
 
     private readonly NotifyIcon _tray;
+    private readonly TrayIconVisibility _trayVisibility;
+    private readonly ToolStripMenuItem _keepTrayVisible = new("Keep icon visible next to clock")
+    {
+        Name = "KeepTrayIconVisible", CheckOnClick = true
+    };
     private readonly ToolStripMenuItem _trayUpdate = new("Check && install updates") { Name = "TrayCheckForUpdates" };
     private readonly Icon _appIcon = AppBranding.LoadIcon(SystemInformation.IconSize);
     private readonly Icon _trayIcon = AppBranding.LoadIcon(SystemInformation.SmallIconSize);
+    private readonly Icon _disconnectedTrayIcon;
     private readonly PictureBox _brand = new() { Name = "AppLogo", Left = 28, Top = 24, Width = 48, Height = 48, SizeMode = PictureBoxSizeMode.Zoom };
     private CancellationTokenSource? _runCts;
     private CancellationTokenSource? _updateCts;
@@ -115,19 +122,27 @@ internal sealed class MainWindow : Form
 
     internal MainWindow(bool launchedAtStartup = false, bool resumeSharing = false)
         : this(SettingsStore.Load(), SettingsStore.Save, launchedAtStartup, resumeSharing: resumeSharing,
-            configureStartup: WindowsStartup.SetEnabled) { }
+            configureStartup: WindowsStartup.SetEnabled, promoteTrayIcon: WindowsTrayIconVisibility.TryPromote) { }
 
     internal MainWindow(AppSettings settings, Action<AppSettings> saveSettings, bool launchedAtStartup = false,
         Func<TcpListener>? listenerFactory = null, IAppUpdater? updater = null,
         Func<Action<string>, IKeyboardRemappingService>? keyboardFactory = null,
         bool resumeSharing = false, bool? elevated = null, Action<bool>? restartElevated = null,
         Action<bool>? configureStartup = null,
-        Func<Action<string>, IClipboardSharingService>? clipboardFactory = null)
+        Func<Action<string>, IClipboardSharingService>? clipboardFactory = null,
+        Func<TrayVisibilityResult>? promoteTrayIcon = null)
     {
         _settings = settings;
         _saveSettings = saveSettings;
         // The production constructor supplies the registry writer; UI tests stay isolated.
         _configureStartup = configureStartup ?? (_ => { });
+        // As with startup registration, UI tests never change the user's tray preferences.
+        _trayVisibility = new(promoteTrayIcon ?? (() => TrayVisibilityResult.Unsupported), SettingsStore.Log, () =>
+        {
+            if (_shuttingDown || _tray is null || !_tray.Visible) return;
+            _tray.Visible = false;
+            _tray.Visible = true;
+        });
         _listenerFactory = listenerFactory ?? (() => new TcpListener(IPAddress.Any, MousePeer.Port));
         _updater = updater ?? new GitHubAppUpdater();
         _keyboardFactory = keyboardFactory ?? (error => new KeyboardRemappingService(error));
@@ -268,15 +283,37 @@ internal sealed class MainWindow : Form
         trayMenu.Items.Add(_trayUpdate);
         trayMenu.Items.Add("Restart as administrator...", null, (_, _) => RestartAsAdministrator()).Enabled = !isElevated;
         trayMenu.Items.Add(new ToolStripSeparator());
-        trayMenu.Items.Add("Exit", null, (_, _) => ExitApplication());
-        _tray = new NotifyIcon
+        _keepTrayVisible.Checked = _settings.KeepTrayIconVisible;
+        _keepTrayVisible.Enabled = OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000);
+        _keepTrayVisible.ToolTipText = "Windows 11: keep MWB outside the hidden-icons menu while it is running.";
+        _keepTrayVisible.CheckedChanged += (_, _) =>
         {
-            Icon = _trayIcon,
-            Text = "Mouse, with out borders",
-            ContextMenuStrip = trayMenu,
-            Visible = true
+            if (_initializing) return;
+            bool previous = _settings.KeepTrayIconVisible;
+            _settings.KeepTrayIconVisible = _keepTrayVisible.Checked;
+            if (SavePreferences()) _trayVisibility.Enabled = _keepTrayVisible.Checked;
+            else
+            {
+                _settings.KeepTrayIconVisible = previous;
+                _initializing = true;
+                _keepTrayVisible.Checked = previous;
+                _initializing = false;
+            }
         };
+        trayMenu.Items.Add(_keepTrayVisible);
+        trayMenu.Items.Add("Notification icon settings...", null, (_, _) =>
+        {
+            try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("ms-settings:taskbar") { UseShellExecute = true }); }
+            catch (Exception ex) { ShowWindow(); SetStatus("Cannot open Windows taskbar settings: " + ex.Message); }
+        });
+        trayMenu.Items.Add(new ToolStripSeparator());
+        trayMenu.Items.Add("Exit", null, (_, _) => ExitApplication());
+        _disconnectedTrayIcon = AppBranding.ToGrayscaleIcon(_trayIcon);
+        _tray = new NotifyIcon { ContextMenuStrip = trayMenu };
+        SetTrayConnected(false);
+        _tray.Visible = true;
         _tray.DoubleClick += (_, _) => ShowWindow();
+        _trayVisibility.Enabled = _settings.KeepTrayIconVisible;
 
         _controllerRole.CheckedChanged += (_, _) =>
         {
@@ -589,6 +626,13 @@ internal sealed class MainWindow : Form
         SettingsStore.Log(message);
     }
 
+    private void SetTrayConnected(bool connected)
+    {
+        if (_shuttingDown) return;
+        _tray.Icon = connected ? _trayIcon : _disconnectedTrayIcon;
+        _tray.Text = connected ? "Mouse, with out borders — Connected" : "Mouse, with out borders — Disconnected";
+    }
+
     private void Ui(Action action)
     {
         if (_shuttingDown || IsDisposed || !IsHandleCreated) return;
@@ -798,6 +842,10 @@ internal sealed class MainWindow : Form
         {
             _clipboard?.Attach(peer);
             Task reading = peer.ReadLoopAsync(sharing.Receive, lifetime.Token);
+            Ui(() =>
+            {
+                if (_runCts == lifetime && ReferenceEquals(_peer, peer)) SetTrayConnected(true);
+            });
             Task completed = await Task.WhenAny(reading, sharing.Completion).ConfigureAwait(false);
             if (completed == sharing.Completion && !reading.IsCompleted)
             {
@@ -816,6 +864,7 @@ internal sealed class MainWindow : Form
         }
         finally
         {
+            Ui(() => { if (_runCts == lifetime) SetTrayConnected(false); });
             _clipboard?.Detach(peer);
             lock (_sharingLock)
             {
@@ -837,6 +886,8 @@ internal sealed class MainWindow : Form
 
     protected override void WndProc(ref Message message)
     {
+        if (TaskbarCreatedMessage != 0 && (uint)message.Msg == TaskbarCreatedMessage && !_shuttingDown)
+            _trayVisibility?.RefreshSoon();
         if (AppInstanceActivation.Message != 0 && (uint)message.Msg == AppInstanceActivation.Message)
         {
             if (!_shuttingDown) ShowWindow();
@@ -873,6 +924,7 @@ internal sealed class MainWindow : Form
         if (_peer is { } peer) _clipboard?.Detach(peer);
         _peer?.Dispose();
         _peer = null;
+        SetTrayConnected(false);
         _controllerRole.Enabled = true;
         _receiverRole.Enabled = true;
         _host.Enabled = true;
@@ -899,6 +951,7 @@ internal sealed class MainWindow : Form
         }
 
         _shuttingDown = true;
+        _trayVisibility.Dispose();
         _keyboard?.Dispose();
         _keyboard = null;
         _updateCts?.Cancel();
@@ -915,6 +968,7 @@ internal sealed class MainWindow : Form
         if (disposing && !_iconsDisposed)
         {
             _shuttingDown = true;
+            _trayVisibility?.Dispose();
             _runCts?.Cancel();
             _listener?.Stop();
             _peer?.Dispose();
@@ -929,6 +983,7 @@ internal sealed class MainWindow : Form
             _brand.Image?.Dispose();
             _appIcon.Dispose();
             _trayIcon.Dispose();
+            _disconnectedTrayIcon?.Dispose();
         }
         base.Dispose(disposing);
     }

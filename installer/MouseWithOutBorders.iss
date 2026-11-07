@@ -1,6 +1,9 @@
 #define AppName "Mouse, with out borders"
 #ifndef AppVersion
-  #define AppVersion "0.1.19"
+  #define AppVersion "0.1.20"
+#endif
+#ifndef AppSourceDir
+  #define AppSourceDir "..\dist\current\app"
 #endif
 
 [Setup]
@@ -18,7 +21,7 @@ PrivilegesRequired=lowest
 ArchitecturesAllowed=x64os
 ArchitecturesInstallIn64BitMode=x64os
 MinVersion=10.0
-OutputDir=..\dist\installer
+OutputDir=..\dist\current\installer
 OutputBaseFilename=MouseWithOutBorders-{#AppVersion}-Setup
 SetupIconFile=..\MouseWithOutBorders\assets\app.ico
 WizardStyle=modern
@@ -37,7 +40,7 @@ SetupLogging=yes
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked
 
 [Files]
-Source: "..\dist\app\MouseWithOutBorders.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#AppSourceDir}\MouseWithOutBorders.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\MouseWithOutBorders\assets\app.ico"; DestDir: "{app}"; DestName: "app-{#AppVersion}.ico"; Flags: ignoreversion
 

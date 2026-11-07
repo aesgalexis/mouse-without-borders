@@ -97,6 +97,9 @@ internal sealed class MainWindow : Form
 
     private readonly NotifyIcon _tray;
     private readonly TrayIconVisibility _trayVisibility;
+    private readonly ToolStripMenuItem _trayConnect = new("Connect") { Name = "TrayConnect" };
+    private readonly ToolStripMenuItem _trayDisconnect = new("Disconnect") { Name = "TrayDisconnect" };
+    private readonly ToolStripMenuItem _trayCancel = new() { Name = "TrayCancelConnection" };
     private readonly ToolStripMenuItem _keepTrayVisible = new("Always show tray icon")
     {
         Name = "KeepTrayIconVisible", CheckOnClick = true
@@ -116,6 +119,8 @@ internal sealed class MainWindow : Form
     private bool _initializing = true;
     private bool _exitRequested;
     private bool _editingKeys;
+
+    private enum TrayConnectionState { Idle, Waiting, Connected }
 
     private bool IsReceiver => _receiverRole.Checked;
     private bool ExitRight => _edge.SelectedIndex != 1;
@@ -273,7 +278,10 @@ internal sealed class MainWindow : Form
             Font = new Font("Segoe UI", 10)
         };
         trayMenu.Items.Add("Open", null, (_, _) => ShowWindow());
-        trayMenu.Items.Add("Stop mouse sharing", null, (_, _) => Stop());
+        _trayConnect.Click += (_, _) => ConnectFromTray();
+        _trayDisconnect.Click += (_, _) => Stop();
+        _trayCancel.Click += (_, _) => Stop();
+        trayMenu.Items.AddRange([_trayConnect, _trayDisconnect, _trayCancel]);
         trayMenu.Items.Add("Remap keys...", null, (_, _) => EditKeyMappings());
         _trayUpdate.Click += async (_, _) =>
         {
@@ -310,7 +318,7 @@ internal sealed class MainWindow : Form
         trayMenu.Items.Add("Exit", null, (_, _) => ExitApplication());
         _disconnectedTrayIcon = AppBranding.ToGrayscaleIcon(_trayIcon);
         _tray = new NotifyIcon { ContextMenuStrip = trayMenu };
-        SetTrayConnected(false);
+        SetTrayConnectionState(TrayConnectionState.Idle);
         _tray.Visible = true;
         _tray.DoubleClick += (_, _) => ShowWindow();
         _trayVisibility.Enabled = _settings.KeepTrayIconVisible;
@@ -626,11 +634,16 @@ internal sealed class MainWindow : Form
         SettingsStore.Log(message);
     }
 
-    private void SetTrayConnected(bool connected)
+    private void SetTrayConnectionState(TrayConnectionState state)
     {
         if (_shuttingDown) return;
+        bool connected = state == TrayConnectionState.Connected;
         _tray.Icon = connected ? _trayIcon : _disconnectedTrayIcon;
         _tray.Text = connected ? "Mouse, with out borders — Connected" : "Mouse, with out borders — Disconnected";
+        _trayConnect.Enabled = state == TrayConnectionState.Idle;
+        _trayDisconnect.Enabled = connected;
+        _trayCancel.Text = IsReceiver ? "Stop listening" : "Cancel connection";
+        _trayCancel.Available = state == TrayConnectionState.Waiting;
     }
 
     private void Ui(Action action)
@@ -650,6 +663,20 @@ internal sealed class MainWindow : Form
         Activate();
     }
 
+    private void ConnectFromTray()
+    {
+        if (_shuttingDown || _runCts is not null) return;
+        if (!HasConnectionDetails())
+        {
+            ShowWindow();
+            (string.IsNullOrWhiteSpace(_host.Text) ? _host : _hostKey).Focus();
+            return;
+        }
+
+        Toggle();
+        if (_runCts is null) ShowWindow();
+    }
+
     private void Toggle()
     {
         if (_runCts is not null) { Stop(); return; }
@@ -663,6 +690,7 @@ internal sealed class MainWindow : Form
                 _listener = _listenerFactory();
                 _listener.Start();
                 _runCts = lifetime;
+                SetTrayConnectionState(TrayConnectionState.Waiting);
                 _controllerRole.Enabled = false;
                 _receiverRole.Enabled = false;
                 ShowMode();
@@ -674,6 +702,7 @@ internal sealed class MainWindow : Form
                 string host = _host.Text.Trim();
                 if (host.Length == 0) throw new ArgumentException("Enter the receiver PC's LAN IP.");
                 _runCts = lifetime;
+                SetTrayConnectionState(TrayConnectionState.Waiting);
                 _controllerRole.Enabled = false;
                 _receiverRole.Enabled = false;
                 _host.Enabled = false;
@@ -844,7 +873,7 @@ internal sealed class MainWindow : Form
             Task reading = peer.ReadLoopAsync(sharing.Receive, lifetime.Token);
             Ui(() =>
             {
-                if (_runCts == lifetime && ReferenceEquals(_peer, peer)) SetTrayConnected(true);
+                if (_runCts == lifetime && ReferenceEquals(_peer, peer)) SetTrayConnectionState(TrayConnectionState.Connected);
             });
             Task completed = await Task.WhenAny(reading, sharing.Completion).ConfigureAwait(false);
             if (completed == sharing.Completion && !reading.IsCompleted)
@@ -864,7 +893,10 @@ internal sealed class MainWindow : Form
         }
         finally
         {
-            Ui(() => { if (_runCts == lifetime) SetTrayConnected(false); });
+            Ui(() =>
+            {
+                if (_runCts == lifetime) SetTrayConnectionState(TrayConnectionState.Waiting);
+            });
             _clipboard?.Detach(peer);
             lock (_sharingLock)
             {
@@ -924,7 +956,7 @@ internal sealed class MainWindow : Form
         if (_peer is { } peer) _clipboard?.Detach(peer);
         _peer?.Dispose();
         _peer = null;
-        SetTrayConnected(false);
+        SetTrayConnectionState(TrayConnectionState.Idle);
         _controllerRole.Enabled = true;
         _receiverRole.Enabled = true;
         _host.Enabled = true;

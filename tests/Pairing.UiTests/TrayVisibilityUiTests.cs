@@ -75,6 +75,7 @@ internal static class TrayVisibilityUiTests
         TestRecovery();
         TestPreferences();
         TestSaveFailure();
+        TestControllerConnect();
         TestConnectionIcon();
         Console.WriteLine("PASS: MWB-only tray promotion, delayed registration, shell recreation, error recovery, persisted opt-out and disposal; no real tray settings changed.");
     }
@@ -204,11 +205,18 @@ internal static class TrayVisibilityUiTests
         using MainWindow window = Window(settings, _ => { }, () => TrayVisibilityResult.Applied,
             () => new TcpListener(IPAddress.Loopback, MousePeer.Port));
         NotifyIcon tray = GetTray(window);
+        ToolStripMenuItem connect = TrayItem(tray, "TrayConnect");
+        ToolStripMenuItem disconnect = TrayItem(tray, "TrayDisconnect");
+        ToolStripMenuItem cancel = TrayItem(tray, "TrayCancelConnection");
         Icon disconnected = tray.Icon!;
         Assert(tray.Visible && tray.Text.EndsWith("Disconnected", StringComparison.Ordinal),
             "The tray must report that MWB is disconnected at startup.");
-        window.Controls.Find("ToggleConnection", true).OfType<Button>().Single().PerformClick();
-        Assert(ReferenceEquals(tray.Icon, disconnected), "Listening without a peer must keep the disconnected icon.");
+        Assert(connect.Text == "Connect" && connect.Enabled && disconnect.Text == "Disconnect" && !disconnect.Enabled && !cancel.Available,
+            "The idle tray menu must offer Connect and disable Disconnect.");
+        window.Close();
+        connect.PerformClick();
+        Assert(!window.Visible && ReferenceEquals(tray.Icon, disconnected) && !connect.Enabled && !disconnect.Enabled &&
+            cancel.Available && cancel.Text == "Stop listening", "Connect must start the saved receiver role without opening the window.");
 
         MousePeer Connect()
         {
@@ -222,6 +230,8 @@ internal static class TrayVisibilityUiTests
         using (MousePeer peer = Connect())
         {
             PumpUntil(() => tray.Text.EndsWith("Connected", StringComparison.Ordinal));
+            Assert(!connect.Enabled && disconnect.Enabled && !cancel.Available && !window.Visible,
+                "An authenticated connection must enable Disconnect while the window is hidden.");
             using Bitmap gray = disconnected.ToBitmap();
             using Bitmap blue = tray.Icon!.ToBitmap();
             bool coloredPixel = false;
@@ -237,18 +247,60 @@ internal static class TrayVisibilityUiTests
                 }
             }
             Assert(coloredPixel, "An authenticated connection must restore the blue tray icon.");
+            window.Show();
             window.Close();
-            Assert(!window.Visible && tray.Visible, "Closing the window must retain the connected tray icon.");
+            Assert(!window.Visible && tray.Visible && disconnect.Enabled,
+                "Closing the window must retain the connected tray icon and its Disconnect action.");
         }
         PumpUntil(() => ReferenceEquals(tray.Icon, disconnected));
+        Assert(!connect.Enabled && !disconnect.Enabled && cancel.Available,
+            "Losing the peer must disable Disconnect and offer to stop the receiver that is still listening.");
         using (MousePeer peer = Connect())
         {
             PumpUntil(() => tray.Text.EndsWith("Connected", StringComparison.Ordinal));
-            tray.ContextMenuStrip!.Items.OfType<ToolStripMenuItem>().Single(item => item.Text == "Stop mouse sharing").PerformClick();
-            Assert(tray.Visible && ReferenceEquals(tray.Icon, disconnected),
-                "Stopping a connection from the tray must turn the icon gray immediately.");
+            disconnect.PerformClick();
+            Assert(tray.Visible && ReferenceEquals(tray.Icon, disconnected) && connect.Enabled && !disconnect.Enabled && !cancel.Available,
+                "Disconnect must stop sharing, restore Connect and turn the icon gray immediately.");
         }
-        Console.WriteLine("PASS: gray tray icon at startup and while listening, blue during authenticated sharing, and gray after disconnect or stop while hidden.");
+        Console.WriteLine("PASS: tray Connect starts the saved receiver role, Disconnect follows the authenticated session and the icon follows the connection state.");
+    }
+
+    private static void TestControllerConnect()
+    {
+        using MainWindow window = Window(new() { Role = "Controller", AutoConnect = false, MinimizeToTray = true },
+            _ => { }, () => TrayVisibilityResult.Applied);
+        NotifyIcon tray = GetTray(window);
+        ToolStripMenuItem connect = TrayItem(tray, "TrayConnect");
+        ToolStripMenuItem disconnect = TrayItem(tray, "TrayDisconnect");
+        ToolStripMenuItem cancel = TrayItem(tray, "TrayCancelConnection");
+        TextBox host = window.Controls.Find("ReceiverHost", true).OfType<TextBox>().Single();
+        TextBox code = window.Controls.Find("RemotePairingCode", true).OfType<TextBox>().Single();
+
+        window.Close();
+        connect.PerformClick();
+        Assert(window.Visible && host.Focused && connect.Enabled && !disconnect.Enabled,
+            "Connect must open the setup and focus the missing address.");
+        host.Text = "127.0.0.1";
+        window.Close();
+        connect.PerformClick();
+        Assert(window.Visible && code.Focused && connect.Enabled && !disconnect.Enabled,
+            "Connect must focus the pairing code when the address is already set.");
+
+        using TcpListener receiver = new(IPAddress.Loopback, MousePeer.Port);
+        receiver.Start();
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(5));
+        Task<TcpClient> accepting = receiver.AcceptTcpClientAsync(timeout.Token).AsTask();
+        code.Text = MousePeer.NewKey();
+        window.Close();
+        connect.PerformClick();
+        PumpUntil(() => accepting.IsCompleted);
+        using TcpClient client = accepting.GetAwaiter().GetResult();
+        Assert(!window.Visible && !connect.Enabled && !disconnect.Enabled && cancel.Available && cancel.Text == "Cancel connection",
+            "Connect must use the saved address and offer to cancel before pairing completes.");
+        cancel.PerformClick();
+        Assert(connect.Enabled && !disconnect.Enabled && !cancel.Available,
+            "Cancelling an attempt must return the tray menu to its idle state.");
+        Console.WriteLine("PASS: tray Connect guides incomplete controller setup, connects with saved details and supports cancelling a pending attempt.");
     }
 
     private static MainWindow Window(AppSettings settings, Action<AppSettings> save, Func<TrayVisibilityResult> promote,
@@ -263,11 +315,10 @@ internal static class TrayVisibilityUiTests
         return window;
     }
 
-    private static ToolStripMenuItem VisibilityItem(MainWindow window)
-    {
-        NotifyIcon tray = GetTray(window);
-        return tray.ContextMenuStrip!.Items.OfType<ToolStripMenuItem>().Single(item => item.Name == "KeepTrayIconVisible");
-    }
+    private static ToolStripMenuItem VisibilityItem(MainWindow window) => TrayItem(GetTray(window), "KeepTrayIconVisible");
+
+    private static ToolStripMenuItem TrayItem(NotifyIcon tray, string name) =>
+        tray.ContextMenuStrip!.Items.OfType<ToolStripMenuItem>().Single(item => item.Name == name);
 
     private static NotifyIcon GetTray(MainWindow window) => (NotifyIcon)typeof(MainWindow)
         .GetField("_tray", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;

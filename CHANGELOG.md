@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.22 — Connect from the tray
+
+- Add **Connect** to the tray menu. It uses the saved role and opens pairing setup if the controller is missing details.
+- Enable **Disconnect** during active sharing. Offer **Stop listening** or **Cancel connection** while MWB waits for the other PC.
+
 ## 0.1.21 — Tray menu and application icon
 
 - Rename the tray menu option to **Always show tray icon**.

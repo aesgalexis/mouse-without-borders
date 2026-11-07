@@ -165,7 +165,8 @@ internal static class TrayVisibilityUiTests
             settings => saved = JsonSerializer.Serialize(settings), () => { calls++; return TrayVisibilityResult.Applied; }))
         {
             ToolStripMenuItem item = VisibilityItem(window);
-            Assert(item.Checked && calls == 1, "The app must apply the saved preference after creating its tray icon.");
+            Assert(item.Text == "Always show tray icon" && item.Checked && calls == 1,
+                "The tray menu must show the visibility option and apply its saved preference after creating the icon.");
             window.Close();
             Assert(!window.Visible && !window.IsDisposed, "Closing to the tray must keep the process and maintenance alive.");
             uint taskbarCreated = NativeMouse.RegisterWindowMessage("TaskbarCreated");

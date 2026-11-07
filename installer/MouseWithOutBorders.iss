@@ -1,6 +1,6 @@
 #define AppName "Mouse, with out borders"
 #ifndef AppVersion
-  #define AppVersion "0.1.20"
+  #define AppVersion "0.1.21"
 #endif
 #ifndef AppSourceDir
   #define AppSourceDir "..\dist\current\app"
@@ -53,29 +53,35 @@ Filename: "{app}\MouseWithOutBorders.exe"; Description: "Launch {#AppName}"; Fla
 Filename: "{app}\MouseWithOutBorders.exe"; Flags: nowait; Check: IsAppUpdate
 
 [Code]
-procedure RefreshDesktopIcons;
+const
+  SHCNE_UPDATEITEM = $00002000;
+  SHCNF_PATHW = $0005;
+
+procedure SHChangeNotify(EventId: LongInt; Flags: Cardinal; Item: String; Reserved: HWND);
+  external 'SHChangeNotify@shell32.dll stdcall';
+
+procedure RefreshShortcutIcons(const Directory, AppPath, IconLocation: String; Shell: Variant);
 var
   Entry: TFindRec;
-  Shell, Shortcut: Variant;
-  ShortcutPath, AppPath: String;
+  Shortcut: Variant;
+  ShortcutPath: String;
 begin
-  AppPath := ExpandConstant('{app}\MouseWithOutBorders.exe');
-  Shell := CreateOleObject('WScript.Shell');
-  if FindFirst(ExpandConstant('{autodesktop}\*.lnk'), Entry) then
+  if FindFirst(AddBackslash(Directory) + '*.lnk', Entry) then
   begin
     try
       repeat
         try
-          ShortcutPath := ExpandConstant('{autodesktop}\') + Entry.Name;
+          ShortcutPath := AddBackslash(Directory) + Entry.Name;
           Shortcut := Shell.CreateShortcut(ShortcutPath);
           if CompareText(Shortcut.TargetPath, AppPath) = 0 then
           begin
-            Shortcut.IconLocation := ExpandConstant('{app}\app-{#AppVersion}.ico') + ',0';
+            Shortcut.IconLocation := IconLocation;
             Shortcut.Save;
-            Log('Updated desktop shortcut icon: ' + Entry.Name);
+            SHChangeNotify(SHCNE_UPDATEITEM, SHCNF_PATHW, ShortcutPath, 0);
+            Log('Updated MWB shortcut icon: ' + Entry.Name);
           end;
         except
-          Log('Could not refresh desktop shortcut: ' + GetExceptionMessage);
+          Log('Could not refresh MWB shortcut: ' + GetExceptionMessage);
         end;
       until not FindNext(Entry);
     finally
@@ -85,9 +91,25 @@ begin
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
+var
+  Shell: Variant;
+  AppPath, IconLocation: String;
 begin
   if CurStep = ssPostInstall then
-    RefreshDesktopIcons;
+  begin
+    AppPath := ExpandConstant('{app}\MouseWithOutBorders.exe');
+    IconLocation := ExpandConstant('{app}\app-{#AppVersion}.ico') + ',0';
+    try
+      Shell := CreateOleObject('WScript.Shell');
+      RefreshShortcutIcons(ExpandConstant('{autodesktop}'), AppPath, IconLocation, Shell);
+      RefreshShortcutIcons(ExpandConstant('{userappdata}\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar'),
+        AppPath, IconLocation, Shell);
+    except
+      Log('Could not refresh MWB shortcuts: ' + GetExceptionMessage);
+    end;
+    SHChangeNotify(SHCNE_UPDATEITEM, SHCNF_PATHW, AppPath, 0);
+    SHChangeNotify(SHCNE_UPDATEITEM, SHCNF_PATHW, ExpandConstant('{autoprograms}\{#AppName}.lnk'), 0);
+  end;
 end;
 
 function IsAppUpdate: Boolean;

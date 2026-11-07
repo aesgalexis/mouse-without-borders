@@ -14,6 +14,9 @@ $uninstallRegistryPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninst
 $desktopDir = [Environment]::GetFolderPath('DesktopDirectory')
 $shortcutPath = Join-Path $desktopDir 'MWB Installer CI.lnk'
 $defaultShortcutPath = Join-Path $desktopDir 'Mouse, with out borders.lnk'
+$startShortcutPath = Join-Path ([Environment]::GetFolderPath('Programs')) 'Mouse, with out borders.lnk'
+$taskbarLinks = Join-Path ([Environment]::GetFolderPath('ApplicationData')) 'Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar'
+$taskbarShortcutPath = Join-Path $taskbarLinks 'MWB Installer CI.lnk'
 $logDir = Join-Path $PSScriptRoot '..\dist\installer-tests'
 
 # Do not overwrite an existing user's app registration or settings during tests.
@@ -24,8 +27,9 @@ if ($registration -and $registration.InstallLocation.TrimEnd('\') -ine $testDir.
 if (Get-Process -Name MouseWithOutBorders -ErrorAction SilentlyContinue) {
     throw 'Use a disposable Windows account: MWB is already running.'
 }
-if ((Test-Path -LiteralPath $shortcutPath) -or (Test-Path -LiteralPath $defaultShortcutPath)) {
-    throw 'Use a disposable Windows account: an MWB desktop shortcut already exists.'
+if ((Test-Path -LiteralPath $shortcutPath) -or (Test-Path -LiteralPath $defaultShortcutPath) -or
+    (Test-Path -LiteralPath $startShortcutPath) -or (Test-Path -LiteralPath $taskbarShortcutPath)) {
+    throw 'Use a disposable Windows account: an MWB shortcut already exists.'
 }
 . (Join-Path $PSScriptRoot '..\scripts\Artifacts.ps1')
 Remove-MwbGeneratedDirectory $logDir (Join-Path $PSScriptRoot '..\dist')
@@ -107,12 +111,12 @@ function Assert-PackageRegistration([Version]$InstalledVersion) {
 }
 
 function Assert-ShortcutIcon([string]$Path) {
-    if (-not (Test-Path -LiteralPath $Path)) { throw "Desktop shortcut was removed: $Path" }
+    if (-not (Test-Path -LiteralPath $Path)) { throw "Shortcut was removed: $Path" }
     $link = $shell.CreateShortcut($Path)
     if ($link.TargetPath -ine $app -or
         $link.IconLocation.Replace('"', '') -ine ($expectedIconPath + ',0') -or
         -not (Test-Path -LiteralPath $expectedIconPath)) {
-        throw "Setup did not preserve the desktop shortcut and refresh its icon: $Path"
+        throw "Setup did not preserve the shortcut and refresh its icon: $Path"
     }
 }
 
@@ -153,10 +157,17 @@ try {
     Write-Output 'PASS: silent installation preserves the WinGet detection/uninstall contract, includes LICENSE and does not launch MWB.'
     $expectedIconPath = Join-Path $testDir ('app-' + $installedVersion.ToString(3) + '.ico')
     $shell = New-Object -ComObject WScript.Shell
+    Assert-ShortcutIcon $startShortcutPath
     $shortcut = $shell.CreateShortcut($shortcutPath)
     $shortcut.TargetPath = $app
     $shortcut.IconLocation = $app + ',0'
     $shortcut.Save()
+    New-Item -ItemType Directory -Path $taskbarLinks -Force | Out-Null
+    $pinnedShortcut = $shell.CreateShortcut($taskbarShortcutPath)
+    $pinnedShortcut.TargetPath = $app
+    $pinnedShortcut.IconLocation = $app + ',0'
+    $pinnedShortcut.Arguments = '--autostart'
+    $pinnedShortcut.Save()
 
     # Persist a previous selection, then delete its shortcut as a user would.
     # An ordinary upgrade must not restore that historical selection.
@@ -166,6 +177,11 @@ try {
     [void](Invoke-Setup 'upgrade-deleted-desktop-shortcut')
     Assert-DefaultShortcut $false
     Assert-ShortcutIcon $shortcutPath
+    Assert-ShortcutIcon $taskbarShortcutPath
+    if ($shell.CreateShortcut($taskbarShortcutPath).Arguments -cne '--autostart') {
+        throw 'Setup changed the arguments of an existing taskbar shortcut.'
+    }
+    Write-Output 'PASS: existing desktop and taskbar shortcuts use the same cursor icon as the Start menu shortcut.'
     Write-Output 'PASS: an upgrade does not recreate a desktop shortcut deleted after explicit opt-in.'
 
     [void](Invoke-Setup 'desktop-shortcut-opt-in-again' -DesktopShortcut)
@@ -237,6 +253,7 @@ try {
 } finally {
     Remove-Item -LiteralPath $shortcutPath -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $defaultShortcutPath -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $taskbarShortcutPath -Force -ErrorAction SilentlyContinue
     Get-Process -Name MouseWithOutBorders -ErrorAction SilentlyContinue |
         Where-Object { $_.Path -ieq $app } | Stop-Process -Force
     Remove-MwbGeneratedDirectory (Join-Path $logDir 'legacy') $logDir

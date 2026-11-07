@@ -97,7 +97,7 @@ internal sealed class MainWindow : Form
 
     private readonly NotifyIcon _tray;
     private readonly TrayIconVisibility _trayVisibility;
-    private readonly ToolStripMenuItem _keepTrayVisible = new("Keep icon visible next to clock")
+    private readonly ToolStripMenuItem _keepTrayVisible = new("Always show tray icon")
     {
         Name = "KeepTrayIconVisible", CheckOnClick = true
     };

@@ -4,14 +4,14 @@ This Windows desktop application shares mouse input and an optional clipboard be
 
 **Security update in 0.1.19:** all traffic now requires TLS 1.2/1.3 and a new **MWB3-** pairing code containing 160 random bits. Update both PCs, then copy the new receiver code and pair again. Old local codes are replaced and obsolete saved remote codes are cleared; preferences are retained. Version 0.1.18 and earlier use the older protocol and cannot connect to 0.1.19.
 
-The current release is **0.1.20**. The tray icon is gray while disconnected and blue during an active connection. On Windows 11, **Keep icon visible next to clock** is enabled by default. Existing MWB3 pairings from 0.1.19 continue to work.
+The current release is **0.1.21**. The tray icon is gray while disconnected and blue during an active connection. On Windows 11, **Always show tray icon** is enabled by default. Setup refreshes MWB shortcuts with the app's cursor artwork. Existing MWB3 pairings from 0.1.19 continue to work.
 
 **Status:** Windows x64 preview. Installation and transport tests run in GitHub Actions. Real pointer switching must still be checked on two physical machines. The current release is unsigned and Windows SmartScreen may warn before installation.
 
 ## Option A — easiest: Setup.exe
 
-1. Open the [v0.1.20 release](https://github.com/aesgalexis/mouse-without-borders/releases/tag/v0.1.20).
-2. Download [MouseWithOutBorders-0.1.20-Setup.exe](https://github.com/aesgalexis/mouse-without-borders/releases/download/v0.1.20/MouseWithOutBorders-0.1.20-Setup.exe).
+1. Open the [v0.1.21 release](https://github.com/aesgalexis/mouse-without-borders/releases/tag/v0.1.21).
+2. Download [MouseWithOutBorders-0.1.21-Setup.exe](https://github.com/aesgalexis/mouse-without-borders/releases/download/v0.1.21/MouseWithOutBorders-0.1.21-Setup.exe).
 3. Run it on each PC. Installation is for the current Windows user, without an administrator password. You can also use the portable ZIP without installing anything.
 4. On either PC: open Mouse, with out borders; click **Allow connection**; click **Start receiving**.
 5. Note this PC's local IPv4 address and the full **MWB3-** pairing code. **Copy code** copies all four groups of random characters.
@@ -60,7 +60,7 @@ Upgrading to 0.1.19 replaces every old 8-character code or legacy hexadecimal ke
 
 ## Option B — assisted install (Windows PowerShell)
 
-This script defaults to the **0.1.20** release.
+This script defaults to the **0.1.21** release.
 
 Download scripts/install.ps1 from the repository, inspect it, then run from PowerShell in the folder where you saved it:
 

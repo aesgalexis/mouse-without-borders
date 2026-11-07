@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.21 — Tray menu and application icon
+
+- Rename the tray menu option to **Always show tray icon**.
+- Refresh existing MWB desktop and taskbar shortcuts during setup so they use the same cursor artwork as the window, executable and tray. Notify Windows that the app and its Start menu shortcut have changed.
+
 ## 0.1.20 — Notification icon visibility and connection status
 
 - Enable **Keep icon visible next to clock** by default on Windows 11. Reapply only the running MWB executable's notification-area preference after startup, Explorer recreation and periodic checks, including when the main window is closed to the tray.

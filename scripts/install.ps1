@@ -4,7 +4,7 @@
 # the release's published SHA-256 manifest, and runs Inno Setup locally.
 [CmdletBinding()]
 param(
-    [string]$Version = '0.1.20',
+    [string]$Version = '0.1.21',
     [switch]$Receiver,
     [switch]$NoLaunch
 )

@@ -77,13 +77,16 @@ jobs:
       - name: Test installation, running-app upgrades and uninstall
         timeout-minutes: 5
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $installer = @(Get-ChildItem "dist/current/installer/*-Setup.exe") | Select-Object -First 1
           if (-not $installer) { throw "Setup.exe was not produced" }
           $legacy = 'dist/MouseWithOutBorders-0.1.2-Portable.zip'
-          Write-Host 'Downloading the legacy upgrade fixture (60 second timeout).'
+          Write-Host 'Downloading the legacy upgrade fixture through the GitHub API.'
           try {
-            Invoke-WebRequest -Uri 'https://github.com/aesgalexis/mouse-without-borders/releases/download/v0.1.2/MouseWithOutBorders-0.1.2-Portable.zip' -OutFile $legacy -TimeoutSec 60 -MaximumRetryCount 3 -RetryIntervalSec 2
+            gh release download v0.1.2 --repo aesgalexis/mouse-without-borders --pattern 'MouseWithOutBorders-0.1.2-Portable.zip' --output $legacy
+            if ($LASTEXITCODE -ne 0) { throw 'Could not download the legacy upgrade fixture.' }
             if ((Get-FileHash -LiteralPath $legacy -Algorithm SHA256).Hash -ine '876f9d244fe80d3cc81e0ff305533df4ea5e207ac8584db71b328d9bc856f4c3') {
               throw 'Legacy test fixture checksum mismatch.'
             }

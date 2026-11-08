@@ -4,7 +4,7 @@ MWB is a free Windows application for sharing mouse and touchpad input between t
 
 It works with pointing devices attached to either computer and requires no account or cloud service.
 
-**[Download for Windows x64](https://github.com/aesgalexis/mouse-without-borders/releases)**
+**[Download for Windows x64](https://github.com/aesgalexis/mouse-without-borders/releases/latest)**
 
 ## Features
 
@@ -18,19 +18,23 @@ It works with pointing devices attached to either computer and requires no accou
 
 You need two Windows 10/11 x64 PCs on the same trusted private network.
 
-1. Download the **Setup.exe** from the [releases page](https://github.com/aesgalexis/mouse-without-borders/releases) and install it on both PCs. Installation does not require administrator rights. A portable ZIP is also available.
+1. Download **Setup.exe** from the [latest release](https://github.com/aesgalexis/mouse-without-borders/releases/latest) and install it on both PCs. Installation does not require administrator rights. A portable ZIP is also available.
 2. On the first PC, select **Allow connection**, then **Start receiving**. Note its local IP address and pairing code beginning with **MWB3-**. Use **Copy code** to copy the full code.
 3. On the second PC, select **Connect to other PC**. Enter the first PC's IP address and pairing code, choose the screen edge that leads to it, then select **Connect mouse**.
 4. Move a mouse or touchpad across the shared edge to control the other PC. Cross back to return, or use a pointing device attached to that PC to take control locally.
+
+MWB must be running on both PCs. Automatic connection starts the saved receiving
+or connecting role when MWB opens. If receiving is stopped, select **Start receiving**.
+The connecting PC can retry automatically until the other PC is available.
 
 If Windows Firewall prompts you, allow MWB on private networks. The receiving PC must be reachable on TCP port **42187**. See the [installation guide](docs/INSTALLATION.md) for firewall setup, assisted installation and uninstall instructions.
 
 ## Everyday use
 
 - **Opening and closing:** closing the window keeps MWB running in the notification area by default. Open MWB again from its shortcut or double-click the tray icon to show the window. Choose **Exit** from the tray menu to quit.
-- **Connection status:** the tray icon is gray while disconnected, waiting or retrying. It turns blue when a sharing session is connected.
+- **Connection status:** the tray icon stays gray while waiting, preparing or retrying. It turns blue when both PCs confirm that mouse sharing is ready.
 - **Tray icon visibility:** on Windows 11, **Always show tray icon** is enabled by default in the tray menu. MWB reapplies its own visibility preference at startup, after Explorer recreates the taskbar and every 30 seconds. Turn it off to let Windows manage visibility manually. MWB saves that choice across restarts and updates. Promotion uses an internal Windows preference and is best effort. On Windows 10, or if Windows keeps MWB in the hidden-icons menu, use **Notification icon settings...** or drag the icon to the visible part of the tray.
-- **Startup:** **Start with Windows** and **Connect automatically** are enabled by default. You can turn either option off; preferences and pairing details are retained across updates.
+- **Startup:** **Start with Windows** and automatic connection are enabled by default. In receiver mode, **Receive automatically when MWB opens** controls automatic listening. In controller mode, **Connect and reconnect automatically** controls automatic attempts. Preferences and pairing details are retained across updates.
 - **Connecting from the tray:** right-click the icon and select **Connect** to use the saved role and pairing. **Disconnect** is enabled during an active session. While MWB waits for the other PC, use **Stop listening** or **Cancel connection**. **Ctrl+Alt+F12** stops sharing even when the window is hidden, provided the shortcut is available in Windows.
 - **Updates:** select **Check & install updates** from the main window or the tray icon's right-click menu to check GitHub Releases, including previews. The tray action opens the window to show progress and results. MWB verifies the download's SHA-256 checksum before installing and restarting. Updates are checked only on request. Updating a portable copy installs the per-user application rather than replacing the portable executable.
 

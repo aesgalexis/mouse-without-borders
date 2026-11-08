@@ -4,14 +4,14 @@ This Windows desktop application shares mouse input and an optional clipboard be
 
 **Security update in 0.1.19:** all traffic now requires TLS 1.2/1.3 and a new **MWB3-** pairing code containing 160 random bits. Update both PCs, then copy the new receiver code and pair again. Old local codes are replaced and obsolete saved remote codes are cleared; preferences are retained. Version 0.1.18 and earlier use the older protocol and cannot connect to 0.1.19.
 
-The current release is **0.1.22**. The tray icon is gray while disconnected and blue during an active connection. The tray menu offers **Connect** and enables **Disconnect** during an active session. On Windows 11, **Always show tray icon** is enabled by default. Existing MWB3 pairings from 0.1.19 continue to work.
+The current release is **0.1.23**. Update both PCs to use the new mouse readiness confirmation. Existing MWB3 pairing codes remain valid. The tray icon stays gray until both PCs are ready to share the mouse. The tray menu offers **Connect** and enables **Disconnect** during an active session. On Windows 11, **Always show tray icon** is enabled by default.
 
 **Status:** Windows x64 preview. Installation and transport tests run in GitHub Actions. Real pointer switching must still be checked on two physical machines. The current release is unsigned and Windows SmartScreen may warn before installation.
 
 ## Option A — easiest: Setup.exe
 
-1. Open the [v0.1.22 release](https://github.com/aesgalexis/mouse-without-borders/releases/tag/v0.1.22).
-2. Download [MouseWithOutBorders-0.1.22-Setup.exe](https://github.com/aesgalexis/mouse-without-borders/releases/download/v0.1.22/MouseWithOutBorders-0.1.22-Setup.exe).
+1. Open the [latest release](https://github.com/aesgalexis/mouse-without-borders/releases/latest).
+2. Download [MouseWithOutBorders-0.1.23-Setup.exe](https://github.com/aesgalexis/mouse-without-borders/releases/download/v0.1.23/MouseWithOutBorders-0.1.23-Setup.exe).
 3. Run it on each PC. Installation is for the current Windows user, without an administrator password. You can also use the portable ZIP without installing anything.
 4. On either PC: open Mouse, with out borders; click **Allow connection**; click **Start receiving**.
 5. Note this PC's local IPv4 address and the full **MWB3-** pairing code. **Copy code** copies all four groups of random characters.
@@ -60,7 +60,7 @@ Upgrading to 0.1.19 replaces every old 8-character code or legacy hexadecimal ke
 
 ## Option B — assisted install (Windows PowerShell)
 
-This script defaults to the **0.1.22** release.
+This script defaults to the **0.1.23** release.
 
 Download scripts/install.ps1 from the repository, inspect it, then run from PowerShell in the folder where you saved it:
 
@@ -91,7 +91,7 @@ To run without opening the UI after the installation:
 ## Startup / tray
 
 - **Start with Windows** is enabled by default and adds a per-user startup entry for the current executable. Disable it to save an opt-out.
-- **Connect automatically** is enabled by default and restores the saved connection/receiver. A connecting PC retries until the other PC is ready; incomplete pairing stays editable. Existing disabled preferences are retained.
+- **Receive automatically when MWB opens** starts listening in receiver mode. **Connect and reconnect automatically** attempts the saved connection in controller mode and retries when the other PC is unavailable. Automatic connection is enabled by default. Incomplete pairing stays editable and existing opt-outs are retained.
 - Closing the window minimizes it to the **notification area** by default.
 - Right-click the tray icon and choose **Exit** to actually stop the application.
 

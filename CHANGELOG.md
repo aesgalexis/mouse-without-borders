@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.23 — Confirmed mouse sharing
+
+- Confirm the screen layout with the other PC before showing **Connected** or forwarding local input. Stop preparation after five seconds without confirmation and explain that both PCs need MWB open and updated.
+- Keep the main button, tray actions and tray status consistent while listening, connecting, preparing, sharing and reconnecting. Explain how to start receiving on an unavailable PC.
+- Respect disabled automatic retries after losing a connection and ignore callbacks from stopped connection attempts. Clarify automatic receiving on launch.
+- Attach clipboard sharing after both PCs confirm mouse readiness, including when clipboard sharing is enabled during connection setup.
+- Update both PCs together for the new mouse-readiness acknowledgement. Existing pairing codes remain valid.
+- Publish releases from `main` as GitHub's **Latest** so the standard latest-release link opens the current downloads.
+
 ## 0.1.22 — Connect from the tray
 
 - Add **Connect** to the tray menu. It uses the saved role and opens pairing setup if the controller is missing details.

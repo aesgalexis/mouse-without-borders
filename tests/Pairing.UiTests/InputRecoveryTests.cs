@@ -113,7 +113,7 @@ internal static class InputRecoveryTests
         Button toggle = window.Controls.Find("ToggleConnection", true).OfType<Button>().Single();
         // Invoke the action directly because this test window is never shown.
         typeof(MainWindow).GetMethod("Toggle", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, null);
-        Assert(toggle.Text == "Disconnect / Stop", "Emergency fixture did not start listening.");
+        Assert(toggle.Text == "Stop listening", "Emergency fixture did not start listening.");
         Message stop = Message.Create(window.Handle, 0x0312, (IntPtr)MainWindow.EmergencyHotkeyId, IntPtr.Zero);
         object[] arguments = [stop];
         typeof(MainWindow).GetMethod("WndProc", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, arguments);

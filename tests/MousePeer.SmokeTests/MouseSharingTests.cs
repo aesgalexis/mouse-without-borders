@@ -7,6 +7,8 @@ internal static class MouseSharingTests
 {
     internal static void Run()
     {
+        TestSharingReadiness();
+        TestFailedReadyAcknowledgement();
         TestNoPhantomClicks();
         TestReentrantButtonInjection();
         TestButtonInjectionFailures();
@@ -128,6 +130,87 @@ internal static class MouseSharingTests
         {
             foreach (MouseSharingSession session in Sessions) session.Dispose();
         }
+    }
+
+    private static void TestSharingReadiness()
+    {
+        foreach (bool right in new[] { false, true })
+        {
+            Desktop[] desktops = [new(), new()];
+            List<MousePacket>[] sent = [[], []];
+            List<string>[] statuses = [[], []];
+            int[] notifications = [0, 0];
+            using MouseSharingSession initiator = new(true, right, desktops[0], packet =>
+            {
+                sent[0].Add(packet);
+                return true;
+            }, ex => throw ex, statuses[0].Add, onReady: () => notifications[0]++);
+            using MouseSharingSession receiver = new(false, right, desktops[1], packet =>
+            {
+                sent[1].Add(packet);
+                return true;
+            }, ex => throw ex, statuses[1].Add, onReady: () => notifications[1]++);
+            int direction = right ? 1 : -1;
+            initiator.Receive(new MousePacket("ready", Data: direction));
+            receiver.Receive(new MousePacket("layout", Data: direction));
+            Assert(!initiator.Ready && !receiver.Ready && notifications.Sum() == 0,
+                "Packets received before input startup must not announce readiness.");
+            initiator.Start();
+            receiver.Start();
+            Assert(!initiator.Ready && !receiver.Ready && sent[0].Single().Kind == "layout" && sent[1].Count == 0,
+                "Starting the local input loop must wait for the remote layout or acknowledgement.");
+            foreach (MouseSharingSession session in new[] { initiator, receiver })
+            {
+                Point edge = new(right ? desktops[0].Bounds.Right - 1 : desktops[0].Bounds.Left, 300);
+                Assert(!session.PhysicalMove(new Point(edge.X - direction, edge.Y), edge) &&
+                    !session.PhysicalButton(NativeMouse.LEFTDOWN, 0) &&
+                    !session.PhysicalButton(NativeMouse.LEFTUP, 0) &&
+                    !session.PhysicalWheel(NativeMouse.WHEEL, 120) && !session.IsRemote,
+                    "An unconfirmed session must keep movement, clicks and scrolling local.");
+                session.Receive(new MousePacket("enter", Data: direction, Transfer: 1));
+                Assert(!session.IsReceiving, "An unconfirmed session must not accept remote input.");
+            }
+            initiator.Receive(new MousePacket("ready", Data: 0));
+            initiator.Receive(new MousePacket("ready", Data: -direction));
+            receiver.Receive(new MousePacket("ready", Data: direction));
+            receiver.Receive(new MousePacket("layout", Data: 0));
+            Assert(!initiator.Ready && !receiver.Ready && notifications.Sum() == 0 &&
+                statuses.SelectMany(values => values).All(status => !status.StartsWith("Connected.")) &&
+                desktops.All(desktop => !desktop.PointerHidden && desktop.Injected.Count == 0),
+                "Invalid readiness packets must not enable sharing, hide a cursor or report Connected.");
+
+            MousePacket layout = sent[0].Single();
+            receiver.Receive(layout);
+            Assert(receiver.Ready && !initiator.Ready && notifications.SequenceEqual(new[] { 0, 1 }) &&
+                sent[1].Single() == new MousePacket("ready", Data: direction),
+                "The receiver must acknowledge its accepted layout before the initiator becomes ready.");
+            initiator.Receive(sent[1].Single());
+            Assert(initiator.Ready && receiver.ExitRight != right && notifications.SequenceEqual(new[] { 1, 1 }) &&
+                statuses.All(values => values.Last().StartsWith("Connected.")),
+                "Both input loops must announce readiness after the matching acknowledgement.");
+            initiator.Start();
+            receiver.Start();
+            receiver.Receive(layout with { Data = -direction });
+            initiator.Receive(sent[1].Single());
+            Assert(receiver.ExitRight != right && notifications.SequenceEqual(new[] { 1, 1 }) &&
+                sent.All(packets => packets.Count == 1),
+                "Duplicate starts, layouts and acknowledgements must not restart or alter a ready session.");
+        }
+    }
+
+    private static void TestFailedReadyAcknowledgement()
+    {
+        int notifications = 0;
+        List<string> statuses = [];
+        using MouseSharingSession receiver = new(false, true, new Desktop(), _ => false,
+            ex => throw ex, statuses.Add, onReady: () => notifications++);
+        receiver.Start();
+        bool failed = false;
+        try { receiver.Receive(new MousePacket("layout", Data: 1)); }
+        catch (IOException) { failed = true; }
+        Assert(failed && !receiver.Ready && notifications == 0 &&
+            statuses.All(status => !status.StartsWith("Connected.")),
+            "A failed readiness acknowledgement must fail the session without claiming it is connected.");
     }
 
     private static void TestNoPhantomClicks()
@@ -274,6 +357,7 @@ internal static class MouseSharingTests
             using MouseSharingSession session = new(true, true, desktop, _ => true, ex => throw ex,
                 _ => { }, [held]);
             session.Start();
+            session.Receive(new MousePacket("ready", Data: 1));
             Point edge = new(desktop.Bounds.Right - 1, 300);
             Assert(!session.PhysicalMove(new Point(edge.X - 1, edge.Y), edge) && !session.IsRemote,
                 "A button held before startup allowed a local drag to cross PCs.");

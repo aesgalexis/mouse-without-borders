@@ -48,7 +48,7 @@ internal sealed class GitHubAppUpdater : IAppUpdater
     {
         ReleaseMetadata? newest = null;
         Version newestVersion = CurrentVersion;
-        // The project publishes previews. /releases/latest would exclude them.
+        // Include previews as well as the release marked latest on GitHub.
         for (int page = 1; ; page++)
         {
             using HttpResponseMessage response = await GetAsync(new Uri(

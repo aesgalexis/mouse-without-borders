@@ -25,7 +25,9 @@ internal static class RobustnessUiTests
                 Assert(!callbackThreads.IsEmpty && callbackThreads.All(thread => thread != uiThread),
                     "Mouse ownership/status work ran on the application's UI thread.");
                 Assert(errors.IsEmpty, "Starting the independent input loop failed: " + string.Join("; ", errors));
-                Assert(sent.IsEmpty, "A passive receiver sent input before a remote mouse entered.");
+                Assert(service.Ready.IsCompletedSuccessfully && sent.Count == 1 &&
+                    sent.TryPeek(out MousePacket? ready) && ready.Kind == "ready" && ready.Data == 1,
+                    "A passive receiver must confirm readiness without sending mouse input before a remote mouse enters.");
             }
             finally { service.Dispose(); }
             Complete(service.Completion, "The input thread remained alive after disposal.");

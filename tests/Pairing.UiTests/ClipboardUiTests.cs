@@ -9,9 +9,21 @@ internal static class ClipboardUiTests
     private sealed class FakeClipboard : IClipboardSharingService
     {
         internal bool Enabled, Disposed;
+        private MousePeer? _attachedPeer;
+        internal MousePeer? AttachedPeer => Volatile.Read(ref _attachedPeer);
+        internal int AttachCount, AttachThread, DetachCount;
         public void SetEnabled(bool enabled) => Enabled = enabled;
-        public void Attach(MousePeer peer) { }
-        public void Detach(MousePeer peer) { }
+        public void Attach(MousePeer peer)
+        {
+            Volatile.Write(ref _attachedPeer, peer);
+            AttachThread = Environment.CurrentManagedThreadId;
+            Interlocked.Increment(ref AttachCount);
+        }
+        public void Detach(MousePeer peer)
+        {
+            Interlocked.CompareExchange(ref _attachedPeer, null, peer);
+            Interlocked.Increment(ref DetachCount);
+        }
         public void Dispose() { Disposed = true; Enabled = false; }
     }
 
@@ -22,6 +34,7 @@ internal static class ClipboardUiTests
             "New and existing settings must keep clipboard sharing disabled until explicitly enabled.");
         TestPreferenceAndLifecycle();
         TestRestoredOptIn();
+        TestAttachAfterMouseReadiness();
         Console.WriteLine("PASS: clipboard opt-in default, lazy service startup, persisted enable/disable, relaunch and disposal; no clipboard access.");
     }
 
@@ -82,6 +95,48 @@ internal static class ClipboardUiTests
             "Disconnecting mouse sharing must preserve the clipboard preference for the next connection.");
         window.Close();
         Assert(service.Disposed, "A restored clipboard service must be disposed when MWB exits.");
+    }
+
+    private static void TestAttachAfterMouseReadiness()
+    {
+        int uiThread = Environment.CurrentManagedThreadId;
+        AppSettings settings = new() { AutoConnect = false, MinimizeToTray = false };
+        FakeClipboard service = new();
+        using MainWindow window = new(settings, _ => { }, clipboardFactory: _ => service,
+            listenerFactory: () => new TcpListener(IPAddress.Loopback, MousePeer.Port));
+        Show(window);
+        Find<Button>(window, "ToggleConnection").PerformClick();
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(10));
+        Task<MousePeer> connecting = Task.Run(() => MousePeer.ConnectAsync(
+            "127.0.0.1", MousePeer.ParseKey(settings.PairingKey), timeout.Token));
+        PumpUntil(() => connecting.IsCompleted);
+        using MousePeer peer = connecting.GetAwaiter().GetResult();
+        Label status = Find<Label>(window, "ConnectionStatus");
+        PumpUntil(() => status.Text.Contains("Preparing mouse sharing", StringComparison.Ordinal));
+
+        Find<CheckBox>(window, "ShareClipboard").Checked = true;
+        Assert(service.Enabled && service.AttachedPeer is null && service.AttachCount == 0,
+            "Enabling clipboard while paired must wait for the mouse session's readiness before attaching.");
+        Assert(peer.Queue(new MousePacket("layout", Data: 1)), "Could not send the peer's screen layout.");
+        PumpUntil(() => status.Text.StartsWith("Connected", StringComparison.Ordinal) && service.AttachCount > 0);
+        Assert(service.AttachedPeer is not null && service.AttachCount == 1 && service.AttachThread == uiThread,
+            "Readiness must attach the clipboard exactly once on the UI thread that owns the checkbox and service factory.");
+
+        peer.Dispose();
+        PumpUntil(() => service.AttachedPeer is null && service.DetachCount > 0 &&
+            Find<Button>(window, "ToggleConnection").Text == "Stop listening");
+        Assert(service.Enabled && !service.Disposed && settings.ShareClipboard,
+            "Peer loss must detach clipboard transport while retaining the saved opt-in for reconnect.");
+        window.Close();
+        Assert(service.Disposed, "Closing must dispose clipboard monitoring after the peer disconnects.");
+        Console.WriteLine("PASS: clipboard opt-in while preparing waits for mouse readiness, attaches once on the UI thread and detaches on peer loss.");
+    }
+
+    private static void PumpUntil(Func<bool> condition)
+    {
+        DateTime deadline = DateTime.UtcNow.AddSeconds(5);
+        while (!condition() && DateTime.UtcNow < deadline) { Application.DoEvents(); Thread.Sleep(10); }
+        Assert(condition(), "Clipboard connection lifecycle did not reach the expected state.");
     }
 
     private static MainWindow Create(AppSettings settings, Action<AppSettings> save,

@@ -120,10 +120,14 @@ internal sealed class MainWindow : Form
     private bool _exitRequested;
     private bool _editingKeys;
 
-    private enum TrayConnectionState { Idle, Waiting, Connected }
+    private enum ConnectionState { Idle, Listening, Connecting, Preparing, Reconnecting, Connected }
+    private ConnectionState _connectionState;
 
     private bool IsReceiver => _receiverRole.Checked;
     private bool ExitRight => _edge.SelectedIndex != 1;
+    private string IdleStatus => IsReceiver
+        ? "Not receiving. Select Start receiving to allow the other PC to connect."
+        : "Not connected.";
 
     internal MainWindow(bool launchedAtStartup = false, bool resumeSharing = false)
         : this(SettingsStore.Load(), SettingsStore.Save, launchedAtStartup, resumeSharing: resumeSharing,
@@ -318,18 +322,26 @@ internal sealed class MainWindow : Form
         trayMenu.Items.Add("Exit", null, (_, _) => ExitApplication());
         _disconnectedTrayIcon = AppBranding.ToGrayscaleIcon(_trayIcon);
         _tray = new NotifyIcon { ContextMenuStrip = trayMenu };
-        SetTrayConnectionState(TrayConnectionState.Idle);
+        SetConnectionState(ConnectionState.Idle);
         _tray.Visible = true;
         _tray.DoubleClick += (_, _) => ShowWindow();
         _trayVisibility.Enabled = _settings.KeepTrayIconVisible;
 
         _controllerRole.CheckedChanged += (_, _) =>
         {
-            if (!_initializing && _controllerRole.Checked) { ShowMode(); SavePreferences(); }
+            if (!_initializing && _controllerRole.Checked)
+            {
+                ShowMode();
+                if (SavePreferences()) SetStatus(IdleStatus);
+            }
         };
         _receiverRole.CheckedChanged += (_, _) =>
         {
-            if (!_initializing && _receiverRole.Checked) { ShowMode(); SavePreferences(); }
+            if (!_initializing && _receiverRole.Checked)
+            {
+                ShowMode();
+                if (SavePreferences()) SetStatus(IdleStatus);
+            }
         };
         _enterCode.Click += (_, _) =>
         {
@@ -377,7 +389,7 @@ internal sealed class MainWindow : Form
         _copy.Click += (_, _) =>
         {
             Clipboard.SetText(_receiverKey.Text);
-            SetStatus("Code copied.");
+            _tips.Show("Code copied.", _copy, 2000);
         };
         _toggle.Click += (_, _) => Toggle();
         _update.Click += async (_, _) => await UpdateApplicationAsync();
@@ -407,7 +419,7 @@ internal sealed class MainWindow : Form
 
         _initializing = false;
         _status.ForeColor = Accent;
-        _status.Text = startupError ?? "Not connected.";
+        _status.Text = startupError ?? IdleStatus;
         ShowMode();
     }
 
@@ -487,7 +499,7 @@ internal sealed class MainWindow : Form
                     if (!string.IsNullOrEmpty(message)) SetStatus(message);
                 }));
             _clipboard?.SetEnabled(_shareClipboard.Checked);
-            if (_peer is { } peer) _clipboard?.Attach(peer);
+            if (_connectionState == ConnectionState.Connected && _peer is { } peer) _clipboard?.Attach(peer);
         }
         catch (Exception ex)
         {
@@ -584,7 +596,13 @@ internal sealed class MainWindow : Form
         _hostKey.Visible = !receiver;
         _edgeLabel.Visible = !receiver;
         _edge.Visible = !receiver;
-        _toggle.Text = _runCts is null ? (receiver ? "Start receiving" : "Connect mouse") : "Disconnect / Stop";
+        _autoConnect.Text = receiver ? "Receive automatically when MWB opens" : "Connect and reconnect automatically";
+        _toggle.Text = _connectionState switch
+        {
+            ConnectionState.Idle => receiver ? "Start receiving" : "Connect mouse",
+            ConnectionState.Connected => "Disconnect",
+            _ => receiver ? "Stop listening" : "Cancel connection"
+        };
     }
 
     private bool SavePreferences()
@@ -634,16 +652,28 @@ internal sealed class MainWindow : Form
         SettingsStore.Log(message);
     }
 
-    private void SetTrayConnectionState(TrayConnectionState state)
+    private void SetConnectionState(ConnectionState state, string? message = null)
     {
         if (_shuttingDown) return;
-        bool connected = state == TrayConnectionState.Connected;
+        _connectionState = state;
+        bool connected = state == ConnectionState.Connected;
         _tray.Icon = connected ? _trayIcon : _disconnectedTrayIcon;
-        _tray.Text = connected ? "Mouse, with out borders — Connected" : "Mouse, with out borders — Disconnected";
-        _trayConnect.Enabled = state == TrayConnectionState.Idle;
+        string description = state switch
+        {
+            ConnectionState.Listening => "Waiting for other PC",
+            ConnectionState.Connecting => "Connecting",
+            ConnectionState.Preparing => "Preparing mouse sharing",
+            ConnectionState.Reconnecting => "Reconnecting",
+            ConnectionState.Connected => "Connected",
+            _ => "Disconnected"
+        };
+        _tray.Text = "Mouse, with out borders — " + description;
+        _trayConnect.Enabled = state == ConnectionState.Idle;
         _trayDisconnect.Enabled = connected;
         _trayCancel.Text = IsReceiver ? "Stop listening" : "Cancel connection";
-        _trayCancel.Available = state == TrayConnectionState.Waiting;
+        _trayCancel.Available = state is not (ConnectionState.Idle or ConnectionState.Connected);
+        ShowMode();
+        if (message is not null) SetStatus(message);
     }
 
     private void Ui(Action action)
@@ -690,11 +720,10 @@ internal sealed class MainWindow : Form
                 _listener = _listenerFactory();
                 _listener.Start();
                 _runCts = lifetime;
-                SetTrayConnectionState(TrayConnectionState.Waiting);
+                SetConnectionState(ConnectionState.Listening, "Waiting for the other PC. Open MWB there and connect using this PC's code.");
                 _controllerRole.Enabled = false;
                 _receiverRole.Enabled = false;
                 ShowMode();
-                SetStatus("Listening. Waiting for the other PC...");
                 _ = RunReceiverAsync(key, lifetime);
             }
             else
@@ -702,14 +731,13 @@ internal sealed class MainWindow : Form
                 string host = _host.Text.Trim();
                 if (host.Length == 0) throw new ArgumentException("Enter the receiver PC's LAN IP.");
                 _runCts = lifetime;
-                SetTrayConnectionState(TrayConnectionState.Waiting);
+                SetConnectionState(ConnectionState.Connecting, "Connecting to " + host + "...");
                 _controllerRole.Enabled = false;
                 _receiverRole.Enabled = false;
                 _host.Enabled = false;
                 _hostKey.Enabled = false;
                 _edge.Enabled = false;
                 ShowMode();
-                SetStatus("Connecting to " + host + "...");
                 _ = RunControllerAsync(host, key, lifetime);
             }
         }
@@ -722,41 +750,41 @@ internal sealed class MainWindow : Form
 
     private async Task RunControllerAsync(string host, byte[] key, CancellationTokenSource lifetime)
     {
-        bool connectedOnce = false;
         while (!lifetime.IsCancellationRequested)
         {
             MousePeer? activePeer = null;
-            string? inputErrorStatus = null;
+            string disconnectedStatus = "Connection lost. Open MWB on the other PC and select Start receiving.";
             try
             {
                 activePeer = await MousePeer.ConnectAsync(host, key, lifetime.Token).ConfigureAwait(false);
-                connectedOnce = true;
-                _peer = activePeer;
+                lock (_sharingLock)
+                {
+                    if (lifetime.IsCancellationRequested || _runCts != lifetime)
+                        throw new OperationCanceledException(lifetime.Token);
+                    _peer = activePeer;
+                }
                 await RunSharingAsync(activePeer, initiator: true, lifetime).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { break; }
             catch (Exception ex)
             {
                 SettingsStore.Log("Controller connection: " + ex.Message);
-                if (ex is Win32Exception and not SocketException) inputErrorStatus = "Mouse input failed: " + ex.Message;
-                if (!connectedOnce || ex is NotSupportedException or UnauthorizedAccessException)
+                disconnectedStatus = ex switch
                 {
-                    string message = "Could not connect: " + ex.Message;
-                    if (!_settings.AutoConnect || ex is NotSupportedException or UnauthorizedAccessException)
-                    {
-                        Ui(() =>
-                        {
-                            if (_runCts != lifetime) return;
-                            Stop();
-                            SetStatus(message);
-                        });
-                        break;
-                    }
+                    Win32Exception and not SocketException => "Mouse input failed: " + ex.Message,
+                    NotSupportedException or UnauthorizedAccessException => "Could not connect: " + ex.Message,
+                    TimeoutException when activePeer is not null => ex.Message,
+                    _ => "Other PC unavailable. Open MWB there and select Start receiving."
+                };
+                if (!_settings.AutoConnect || ex is NotSupportedException or UnauthorizedAccessException)
+                {
                     Ui(() =>
                     {
-                        if (_runCts == lifetime)
-                            SetStatus("Other PC not ready. Retrying connection...");
+                        if (_runCts != lifetime) return;
+                        Stop();
+                        SetStatus(disconnectedStatus);
                     });
+                    break;
                 }
             }
             finally
@@ -769,9 +797,7 @@ internal sealed class MainWindow : Form
                 Ui(() =>
                 {
                     if (_runCts != lifetime) return;
-                    SetStatus(inputErrorStatus ?? (connectedOnce
-                        ? "Connection lost. Trying to reconnect..."
-                        : "Other PC not ready. Retrying connection..."));
+                    SetConnectionState(ConnectionState.Reconnecting, disconnectedStatus + " Retrying connection...");
                 });
             }
 
@@ -799,21 +825,28 @@ internal sealed class MainWindow : Form
                 }
                 catch (Exception ex) when (ex is IOException or SocketException or UnauthorizedAccessException or OperationCanceledException)
                 {
-                    Ui(() => SetStatus("Pairing failed. Waiting for a valid connection."));
+                    Ui(() =>
+                    {
+                        if (_runCts == lifetime)
+                            SetConnectionState(ConnectionState.Listening, "Pairing failed. Check the code on both PCs. Waiting for a valid connection.");
+                    });
                     continue;
                 }
 
                 using (peer)
                 {
-                    if (lifetime.IsCancellationRequested) break;
-                    _peer = peer;
-                    string disconnectedStatus = "Waiting for the other PC to reconnect...";
+                    lock (_sharingLock)
+                    {
+                        if (lifetime.IsCancellationRequested || _runCts != lifetime) break;
+                        _peer = peer;
+                    }
+                    string disconnectedStatus = "Connection lost. Waiting for the other PC. Open MWB there to reconnect.";
                     try
                     {
                         await RunSharingAsync(peer, initiator: false, lifetime).ConfigureAwait(false);
                     }
                     catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
-                    catch (Win32Exception ex)
+                    catch (Win32Exception ex) when (ex is not SocketException)
                     {
                         // Closing this peer releases the controller's cursor.
                         disconnectedStatus = "Mouse input failed: " + ex.Message;
@@ -822,11 +855,15 @@ internal sealed class MainWindow : Form
                     catch (Exception ex)
                     {
                         SettingsStore.Log("Receiver connection: " + ex.Message);
+                        if (ex is TimeoutException) disconnectedStatus = ex.Message;
                     }
                     finally
                     {
                         if (ReferenceEquals(_peer, peer)) _peer = null;
-                        Ui(() => { if (_runCts == lifetime) SetStatus(disconnectedStatus); });
+                        Ui(() =>
+                        {
+                            if (_runCts == lifetime) SetConnectionState(ConnectionState.Listening, disconnectedStatus);
+                        });
                     }
                 }
             }
@@ -847,6 +884,11 @@ internal sealed class MainWindow : Form
     private async Task RunSharingAsync(MousePeer peer, bool initiator, CancellationTokenSource lifetime)
     {
         Exception? inputFailure = null;
+        Ui(() =>
+        {
+            if (_runCts == lifetime && ReferenceEquals(_peer, peer))
+                SetConnectionState(ConnectionState.Preparing, "Paired. Preparing mouse sharing on both PCs...");
+        });
         bool exitRight = !string.Equals(_settings.ExitEdge, "Left", StringComparison.OrdinalIgnoreCase);
         using MouseSharingService sharing = new(initiator, exitRight, peer.Queue, ex =>
         {
@@ -859,7 +901,8 @@ internal sealed class MainWindow : Form
             });
         }, message => Ui(() =>
         {
-            if (_runCts == lifetime && ReferenceEquals(_peer, peer)) SetStatus(message);
+            if (_runCts == lifetime && ReferenceEquals(_peer, peer) && _connectionState == ConnectionState.Connected)
+                SetStatus(message);
         }));
         lock (_sharingLock)
         {
@@ -867,13 +910,24 @@ internal sealed class MainWindow : Form
                 throw new OperationCanceledException(lifetime.Token);
             _sharing = sharing;
         }
+        Task reading = peer.ReadLoopAsync(sharing.Receive, lifetime.Token);
+        using CancellationTokenSource readinessDeadline = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
         try
         {
-            _clipboard?.Attach(peer);
-            Task reading = peer.ReadLoopAsync(sharing.Receive, lifetime.Token);
+            Task timeout = Task.Delay(TimeSpan.FromSeconds(5), readinessDeadline.Token);
+            await Task.WhenAny(reading, sharing.Completion, sharing.Ready, timeout).ConfigureAwait(false);
+            lifetime.Token.ThrowIfCancellationRequested();
+            if (!sharing.Ready.IsCompleted && !reading.IsCompleted && !sharing.Completion.IsCompleted)
+                throw new TimeoutException("Other PC did not confirm mouse sharing. Open MWB and update it on both PCs.");
+            readinessDeadline.Cancel();
             Ui(() =>
             {
-                if (_runCts == lifetime && ReferenceEquals(_peer, peer)) SetTrayConnectionState(TrayConnectionState.Connected);
+                if (_runCts == lifetime && ReferenceEquals(_peer, peer) && sharing.Ready.IsCompletedSuccessfully &&
+                    !reading.IsCompleted && !sharing.Completion.IsCompleted)
+                {
+                    SetConnectionState(ConnectionState.Connected, "Connected. Both PCs are ready to share the mouse.");
+                    _clipboard?.Attach(peer);
+                }
             });
             Task completed = await Task.WhenAny(reading, sharing.Completion).ConfigureAwait(false);
             if (completed == sharing.Completion && !reading.IsCompleted)
@@ -893,10 +947,10 @@ internal sealed class MainWindow : Form
         }
         finally
         {
-            Ui(() =>
-            {
-                if (_runCts == lifetime) SetTrayConnectionState(TrayConnectionState.Waiting);
-            });
+            readinessDeadline.Cancel();
+            peer.Dispose();
+            // Observe the reader even when readiness timed out before it finished.
+            try { await reading.ConfigureAwait(false); } catch { }
             _clipboard?.Detach(peer);
             lock (_sharingLock)
             {
@@ -956,14 +1010,13 @@ internal sealed class MainWindow : Form
         if (_peer is { } peer) _clipboard?.Detach(peer);
         _peer?.Dispose();
         _peer = null;
-        SetTrayConnectionState(TrayConnectionState.Idle);
+        SetConnectionState(ConnectionState.Idle, IdleStatus);
         _controllerRole.Enabled = true;
         _receiverRole.Enabled = true;
         _host.Enabled = true;
         _hostKey.Enabled = true;
         _edge.Enabled = true;
         ShowMode();
-        SetStatus("Stopped.");
     }
 
     private void ExitApplication()

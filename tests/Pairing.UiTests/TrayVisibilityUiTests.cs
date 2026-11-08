@@ -77,6 +77,11 @@ internal static class TrayVisibilityUiTests
         TestSaveFailure();
         TestControllerConnect();
         TestConnectionIcon();
+        TestSharingReadinessTimeout();
+        TestControllerReadiness(acknowledge: false);
+        TestControllerReadiness(acknowledge: true);
+        TestStoppedPairingCannotChangeNewListener();
+        TestUnavailableController();
         Console.WriteLine("PASS: MWB-only tray promotion, delayed registration, shell recreation, error recovery, persisted opt-out and disposal; no real tray settings changed.");
     }
 
@@ -208,6 +213,8 @@ internal static class TrayVisibilityUiTests
         ToolStripMenuItem connect = TrayItem(tray, "TrayConnect");
         ToolStripMenuItem disconnect = TrayItem(tray, "TrayDisconnect");
         ToolStripMenuItem cancel = TrayItem(tray, "TrayCancelConnection");
+        Button toggle = Find<Button>(window, "ToggleConnection");
+        Label status = Find<Label>(window, "ConnectionStatus");
         Icon disconnected = tray.Icon!;
         Assert(tray.Visible && tray.Text.EndsWith("Disconnected", StringComparison.Ordinal),
             "The tray must report that MWB is disconnected at startup.");
@@ -216,7 +223,9 @@ internal static class TrayVisibilityUiTests
         window.Close();
         connect.PerformClick();
         Assert(!window.Visible && ReferenceEquals(tray.Icon, disconnected) && !connect.Enabled && !disconnect.Enabled &&
-            cancel.Available && cancel.Text == "Stop listening", "Connect must start the saved receiver role without opening the window.");
+            cancel.Available && cancel.Text == "Stop listening" && toggle.Text == "Stop listening" &&
+            tray.Text.EndsWith("Waiting for other PC", StringComparison.Ordinal),
+            "Window and tray must show a waiting receiver without claiming a connection.");
 
         MousePeer Connect()
         {
@@ -229,9 +238,15 @@ internal static class TrayVisibilityUiTests
 
         using (MousePeer peer = Connect())
         {
+            PumpUntil(() => tray.Text.EndsWith("Preparing mouse sharing", StringComparison.Ordinal));
+            Assert(ReferenceEquals(tray.Icon, disconnected) && !disconnect.Enabled && cancel.Available &&
+                toggle.Text == "Stop listening" && !status.Text.StartsWith("Connected", StringComparison.Ordinal),
+                "Authentication alone must not advertise a usable mouse connection.");
+            Assert(peer.Queue(new MousePacket("layout", Data: 1)), "Could not send the peer's screen layout.");
             PumpUntil(() => tray.Text.EndsWith("Connected", StringComparison.Ordinal));
-            Assert(!connect.Enabled && disconnect.Enabled && !cancel.Available && !window.Visible,
-                "An authenticated connection must enable Disconnect while the window is hidden.");
+            Assert(!connect.Enabled && disconnect.Enabled && !cancel.Available && !window.Visible && toggle.Text == "Disconnect" &&
+                status.Text.StartsWith("Connected", StringComparison.Ordinal),
+                "Confirmed mouse readiness must update both window and tray while the window is hidden.");
             using Bitmap gray = disconnected.ToBitmap();
             using Bitmap blue = tray.Icon!.ToBitmap();
             bool coloredPixel = false;
@@ -246,23 +261,158 @@ internal static class TrayVisibilityUiTests
                     coloredPixel |= active.A > 0 && active.B > active.R;
                 }
             }
-            Assert(coloredPixel, "An authenticated connection must restore the blue tray icon.");
+            Assert(coloredPixel, "A ready mouse connection must restore the blue tray icon.");
             window.Show();
             window.Close();
             Assert(!window.Visible && tray.Visible && disconnect.Enabled,
                 "Closing the window must retain the connected tray icon and its Disconnect action.");
         }
         PumpUntil(() => ReferenceEquals(tray.Icon, disconnected));
-        Assert(!connect.Enabled && !disconnect.Enabled && cancel.Available,
+        Assert(!connect.Enabled && !disconnect.Enabled && cancel.Available && toggle.Text == "Stop listening" &&
+            tray.Text.EndsWith("Waiting for other PC", StringComparison.Ordinal),
             "Losing the peer must disable Disconnect and offer to stop the receiver that is still listening.");
         using (MousePeer peer = Connect())
         {
+            PumpUntil(() => tray.Text.EndsWith("Preparing mouse sharing", StringComparison.Ordinal));
+            Assert(ReferenceEquals(tray.Icon, disconnected) && !disconnect.Enabled,
+                "A new session must obtain fresh readiness instead of inheriting the previous connection's state.");
+            Assert(peer.Queue(new MousePacket("layout", Data: 1)), "Could not send the reconnecting peer's layout.");
             PumpUntil(() => tray.Text.EndsWith("Connected", StringComparison.Ordinal));
             disconnect.PerformClick();
             Assert(tray.Visible && ReferenceEquals(tray.Icon, disconnected) && connect.Enabled && !disconnect.Enabled && !cancel.Available,
                 "Disconnect must stop sharing, restore Connect and turn the icon gray immediately.");
         }
-        Console.WriteLine("PASS: tray Connect starts the saved receiver role, Disconnect follows the authenticated session and the icon follows the connection state.");
+        Console.WriteLine("PASS: window and tray stay disconnected until mouse readiness, follow peer loss and require fresh readiness on reconnect.");
+    }
+
+    private static void TestSharingReadinessTimeout()
+    {
+        AppSettings settings = new() { AutoConnect = false };
+        using MainWindow window = Window(settings, _ => { }, () => TrayVisibilityResult.Applied,
+            () => new TcpListener(IPAddress.Loopback, MousePeer.Port));
+        NotifyIcon tray = GetTray(window);
+        Icon disconnected = tray.Icon!;
+        TrayItem(tray, "TrayConnect").PerformClick();
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(12));
+        Task<MousePeer> connecting = Task.Run(() => MousePeer.ConnectAsync(
+            "127.0.0.1", MousePeer.ParseKey(settings.PairingKey), timeout.Token));
+        PumpUntil(() => connecting.IsCompleted);
+        using MousePeer peer = connecting.GetAwaiter().GetResult();
+        PumpUntil(() => tray.Text.EndsWith("Preparing mouse sharing", StringComparison.Ordinal));
+        // MousePeer keeps sending heartbeats, but never starts a sharing session.
+        PumpUntil(() => tray.Text.EndsWith("Waiting for other PC", StringComparison.Ordinal), seconds: 8);
+        Assert(ReferenceEquals(tray.Icon, disconnected) && !TrayItem(tray, "TrayDisconnect").Enabled &&
+            Find<Label>(window, "ConnectionStatus").Text.Contains("mouse sharing", StringComparison.OrdinalIgnoreCase),
+            "A responsive transport without mouse readiness must time out with a useful error and resume listening.");
+        TrayItem(tray, "TrayCancelConnection").PerformClick();
+        Console.WriteLine("PASS: heartbeats cannot keep an unready mouse session falsely connected forever.");
+    }
+
+    private static void TestControllerReadiness(bool acknowledge)
+    {
+        string code = MousePeer.NewKey();
+        using TcpListener receiver = new(IPAddress.Loopback, MousePeer.Port);
+        receiver.Start();
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(15));
+        Task<MousePeer> accepting = Task.Run(async () =>
+        {
+            TcpClient client = await receiver.AcceptTcpClientAsync(timeout.Token);
+            return await MousePeer.AcceptAsync(client, MousePeer.ParseKey(code), timeout.Token);
+        });
+        using MainWindow window = Window(new()
+        {
+            Role = "Controller", AutoConnect = false, Host = "127.0.0.1", RemoteKey = code
+        }, _ => { }, () => TrayVisibilityResult.Applied);
+        NotifyIcon tray = GetTray(window);
+        Icon disconnected = tray.Icon!;
+        TrayItem(tray, "TrayConnect").PerformClick();
+        PumpUntil(() => accepting.IsCompleted);
+        using MousePeer peer = accepting.GetAwaiter().GetResult();
+        TaskCompletionSource<MousePacket> layout = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task reading = peer.ReadLoopAsync(packet =>
+        {
+            if (packet.Kind == "layout") layout.TrySetResult(packet);
+        }, timeout.Token);
+        try
+        {
+            PumpUntil(() => layout.Task.IsCompleted && tray.Text.EndsWith("Preparing mouse sharing", StringComparison.Ordinal));
+            Assert(!reading.IsCompleted && ReferenceEquals(tray.Icon, disconnected) &&
+                !TrayItem(tray, "TrayDisconnect").Enabled &&
+                Find<Button>(window, "ToggleConnection").Text == "Cancel connection",
+                "A controller must remain cancellable and disconnected until the receiver confirms mouse readiness.");
+            if (acknowledge)
+            {
+                Assert(peer.Queue(new MousePacket("ready", Data: layout.Task.Result.Data)),
+                    "The receiver could not acknowledge the controller's layout.");
+                PumpUntil(() => tray.Text.EndsWith("Connected", StringComparison.Ordinal));
+                Assert(!reading.IsCompleted && TrayItem(tray, "TrayDisconnect").Enabled &&
+                    Find<Button>(window, "ToggleConnection").Text == "Disconnect" &&
+                    Find<Label>(window, "ConnectionStatus").Text.StartsWith("Connected", StringComparison.Ordinal),
+                    "The receiver's confirmation must enable the same connected state in the controller window and tray.");
+                peer.Dispose();
+            }
+            // Withhold readiness while keeping the fake receiver's heartbeat and reader
+            // alive, or close an established session after a positive acknowledgement.
+            PumpUntil(() => TrayItem(tray, "TrayConnect").Enabled, seconds: 8);
+            string status = Find<Label>(window, "ConnectionStatus").Text;
+            Assert(ReferenceEquals(tray.Icon, disconnected) && tray.Text.EndsWith("Disconnected", StringComparison.Ordinal) &&
+                Find<Button>(window, "ToggleConnection").Text == "Connect mouse" &&
+                !TrayItem(tray, "TrayDisconnect").Enabled && !TrayItem(tray, "TrayCancelConnection").Available,
+                "Both readiness failure and peer loss must return to idle when automatic reconnect is disabled.");
+            Assert(acknowledge ? status.Contains("Open MWB", StringComparison.Ordinal) :
+                status.Contains("confirm mouse sharing", StringComparison.Ordinal) &&
+                status.Contains("both PCs", StringComparison.Ordinal),
+                "The controller must explain unavailable peers or the missing readiness confirmation.");
+        }
+        finally
+        {
+            peer.Dispose();
+            PumpUntil(() => reading.IsCompleted);
+            try { reading.GetAwaiter().GetResult(); }
+            catch (Exception ex) when (ex is IOException or SocketException or OperationCanceledException or ObjectDisposedException) { }
+        }
+        Console.WriteLine(acknowledge
+            ? "PASS: receiver readiness enables controller sharing; peer loss respects disabled automatic reconnection."
+            : "PASS: a legacy receiver with working heartbeats cannot bypass the controller's readiness timeout.");
+    }
+
+    private static void TestStoppedPairingCannotChangeNewListener()
+    {
+        using MainWindow window = Window(new() { AutoConnect = false }, _ => { }, () => TrayVisibilityResult.Applied,
+            () => new TcpListener(IPAddress.Loopback, MousePeer.Port));
+        NotifyIcon tray = GetTray(window);
+        TrayItem(tray, "TrayConnect").PerformClick();
+        using TcpClient unfinished = new();
+        unfinished.Connect(IPAddress.Loopback, MousePeer.Port);
+        PumpUntil(() => unfinished.Available > 0);
+        TrayItem(tray, "TrayCancelConnection").PerformClick();
+        TrayItem(tray, "TrayConnect").PerformClick();
+        string expectedStatus = Find<Label>(window, "ConnectionStatus").Text;
+        DateTime deadline = DateTime.UtcNow.AddMilliseconds(300);
+        while (DateTime.UtcNow < deadline) { Application.DoEvents(); Thread.Sleep(10); }
+        Assert(Find<Label>(window, "ConnectionStatus").Text == expectedStatus &&
+            tray.Text.EndsWith("Waiting for other PC", StringComparison.Ordinal),
+            "A cancelled authentication callback must not overwrite the restarted listener's state.");
+        TrayItem(tray, "TrayCancelConnection").PerformClick();
+    }
+
+    private static void TestUnavailableController()
+    {
+        // Prove the fixed test port is free before attempting a refused connection.
+        using TcpListener reservation = new(IPAddress.Loopback, MousePeer.Port);
+        reservation.Start();
+        reservation.Stop();
+        using MainWindow window = Window(new()
+        {
+            Role = "Controller", AutoConnect = false, Host = "127.0.0.1", RemoteKey = MousePeer.NewKey()
+        }, _ => { }, () => TrayVisibilityResult.Applied);
+        NotifyIcon tray = GetTray(window);
+        TrayItem(tray, "TrayConnect").PerformClick();
+        PumpUntil(() => TrayItem(tray, "TrayConnect").Enabled);
+        Assert(tray.Text.EndsWith("Disconnected", StringComparison.Ordinal) &&
+            Find<Button>(window, "ToggleConnection").Text == "Connect mouse" &&
+            Find<Label>(window, "ConnectionStatus").Text.Contains("Open MWB", StringComparison.Ordinal),
+            "An unavailable remote with retries disabled must leave both controls idle and explain how to start the other PC.");
     }
 
     private static void TestControllerConnect()
@@ -317,6 +467,8 @@ internal static class TrayVisibilityUiTests
 
     private static ToolStripMenuItem VisibilityItem(MainWindow window) => TrayItem(GetTray(window), "KeepTrayIconVisible");
 
+    private static T Find<T>(Control root, string name) where T : Control => root.Controls.Find(name, true).OfType<T>().Single();
+
     private static ToolStripMenuItem TrayItem(NotifyIcon tray, string name) =>
         tray.ContextMenuStrip!.Items.OfType<ToolStripMenuItem>().Single(item => item.Name == name);
 
@@ -333,9 +485,9 @@ internal static class TrayVisibilityUiTests
     [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
     private static extern bool PostMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
 
-    private static void PumpUntil(Func<bool> condition)
+    private static void PumpUntil(Func<bool> condition, int seconds = 5)
     {
-        DateTime deadline = DateTime.UtcNow.AddSeconds(5);
+        DateTime deadline = DateTime.UtcNow.AddSeconds(seconds);
         while (!condition() && DateTime.UtcNow < deadline) { Application.DoEvents(); Thread.Sleep(10); }
         Assert(condition(), "Tray visibility maintenance did not reach the expected state.");
     }

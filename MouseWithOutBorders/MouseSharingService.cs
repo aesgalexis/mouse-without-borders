@@ -8,12 +8,14 @@ internal sealed class MouseSharingService : IDisposable
     private readonly Thread _thread;
     private readonly Action<Exception> _error;
     private readonly TaskCompletionSource<bool> _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource<bool> _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private Control? _dispatch;
     private MouseSharingSession? _session;
     private WindowsMouseDesktop? _desktop;
     private int _stopping, _queuedPackets, _reportedError;
 
     internal Task Completion => _completion.Task;
+    internal Task Ready => _ready.Task;
 
     internal MouseSharingService(bool initiator, bool exitRight, Func<MousePacket, bool> send,
         Action<Exception> error, Action<string> status)
@@ -33,7 +35,8 @@ internal sealed class MouseSharingService : IDisposable
                 // release during startup cannot fall into an unobserved gap.
                 using MouseCapture capture = new(OnPhysicalInput, OnInjectedInput);
                 _session = new MouseSharingSession(initiator, exitRight, desktop, send,
-                    ex => ReportError(ex), status, NativeMouse.GetHeldButtons());
+                    ex => ReportError(ex), status, NativeMouse.GetHeldButtons(),
+                    onReady: () => _ready.TrySetResult(true));
                 using System.Windows.Forms.Timer recovery = new() { Interval = 100 };
                 recovery.Tick += (_, _) =>
                 {

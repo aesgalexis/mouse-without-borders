@@ -93,7 +93,7 @@ internal static class Program
                 DateTime.UtcNow < activationDeadline);
             if (!window.Visible || window.WindowState != FormWindowState.Normal || window.IsDisposed)
                 throw new Exception("A second launch must restore the existing hidden/minimized/visible window.");
-            if (receiver.Enabled || toggle.Text != "Disconnect / Stop")
+            if (receiver.Enabled || toggle.Text != "Stop listening")
                 throw new Exception("Reopening the window must preserve the active listener.");
         }
         window.Close();

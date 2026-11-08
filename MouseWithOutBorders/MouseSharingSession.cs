@@ -99,6 +99,7 @@ internal sealed class MouseSharingSession : IDisposable
     private readonly Func<MousePacket, bool> _send;
     private readonly Action<Win32Exception> _onInputError;
     private readonly Action<string> _status;
+    private readonly Action? _onReady;
     private readonly int _side;
     private readonly RemoteMouseButtons _injectedButtons = new();
     private readonly HashSet<int> _physicalButtons = [];
@@ -109,6 +110,7 @@ internal sealed class MouseSharingSession : IDisposable
     private long _transfer;
     private int _origin;
     private Point _receivedPosition;
+    private bool _started;
     private bool _disposed;
 
     internal bool Ready { get; private set; }
@@ -118,20 +120,22 @@ internal sealed class MouseSharingSession : IDisposable
 
     internal MouseSharingSession(bool initiator, bool exitRight, IMouseDesktop desktop,
         Func<MousePacket, bool> send, Action<Win32Exception> onInputError, Action<string> status,
-        IReadOnlyCollection<int>? initialPhysicalButtons = null)
+        IReadOnlyCollection<int>? initialPhysicalButtons = null, Action? onReady = null)
     {
         _side = initiator ? 0 : 1;
-        Ready = initiator;
         ExitRight = exitRight;
         _desktop = desktop;
         _send = send;
         _onInputError = onInputError;
         _status = status;
+        _onReady = onReady;
         if (initialPhysicalButtons is not null) _physicalButtons.UnionWith(initialPhysicalButtons);
     }
 
     internal void Start()
     {
+        if (_disposed || _started) return;
+        _started = true;
         if (_side == 0) Send(new MousePacket("layout", Data: ExitRight ? 1 : -1));
         ReportReady();
     }
@@ -147,9 +151,20 @@ internal sealed class MouseSharingSession : IDisposable
     private int Y(double ratio) => _desktop.Bounds.Top +
         (int)Math.Round(Math.Clamp(ratio, 0, 1) * Math.Max(0, _desktop.Bounds.Height - 1));
 
-    private void ReportReady() => _status(Ready
-        ? "Connected. Any mouse or touchpad on either PC can cross the shared edge."
-        : "Connected. Waiting for the other PC's screen layout...");
+    private void ReportReady()
+    {
+        if (_disposed) return;
+        _status(Ready
+            ? "Connected. Any mouse or touchpad on either PC can cross the shared edge."
+            : "Preparing mouse sharing. Waiting for the other PC...");
+    }
+
+    private void MarkReady()
+    {
+        Ready = true;
+        ReportReady();
+        _onReady?.Invoke();
+    }
 
     private void ReleaseInjected()
     {
@@ -263,15 +278,22 @@ internal sealed class MouseSharingSession : IDisposable
 
     internal void Receive(MousePacket packet)
     {
-        if (_disposed) return;
+        if (_disposed || !_started) return;
         if (packet.Kind == "layout")
         {
             if (_side == 1 && !Ready && packet.Data is 1 or -1)
             {
                 ExitRight = packet.Data < 0;
-                Ready = true;
-                ReportReady();
+                // Confirm that this PC's input loop has accepted the layout.
+                // A transport connection alone must not enable remote capture.
+                Send(new MousePacket("ready", Data: packet.Data));
+                MarkReady();
             }
+            return;
+        }
+        if (packet.Kind == "ready")
+        {
+            if (_side == 0 && !Ready && packet.Data == (ExitRight ? 1 : -1)) MarkReady();
             return;
         }
         if (!Ready || packet.Transfer <= 0 || packet.Transfer == long.MaxValue || packet.Origin is < 0 or > 1)

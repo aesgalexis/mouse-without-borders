@@ -105,8 +105,10 @@ internal static class StartupUiTests
             Role = "Controller", Host = "127.0.0.1", RemoteKey = MousePeer.NewKey(), MinimizeToTray = false
         }, _ => { }, _ => { }, autostart: true);
         PumpUntil(() => Find<Label>(window, "ConnectionStatus").Text.Contains("Retrying connection"));
-        Assert(!window.Visible && !Find<RadioButton>(window, "ControllerRole").Enabled,
-            "Automatic startup must keep retrying while the other PC is offline.");
+        Assert(!window.Visible && !Find<RadioButton>(window, "ControllerRole").Enabled &&
+            Find<Button>(window, "ToggleConnection").Text == "Cancel connection" &&
+            Find<Label>(window, "ConnectionStatus").Text.Contains("Open MWB", StringComparison.Ordinal),
+            "Automatic startup must explain how to start the other PC and offer cancellation while retrying offline.");
         receiver.Start();
         using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(8));
         Task<TcpClient> accepted = receiver.AcceptTcpClientAsync(timeout.Token).AsTask();

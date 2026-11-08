@@ -38,6 +38,7 @@ internal static class Program
         await TestPagination();
         await TestInvalidReleases();
         await TestSuccessfulInstall();
+        await TestGatewayTimeoutFallback();
         await TestFailedDownloads();
         await TestCancellation();
         Console.WriteLine("All updater smoke tests passed. No installers executed.");
@@ -49,9 +50,9 @@ internal static class Program
         string tag = "v" + version;
         string name = $"MouseWithOutBorders-{version}-Setup.exe";
         List<object> assets = [];
-        if (!missingInstaller) assets.Add(new { name, state = "uploaded", size = Installer.Length,
+        if (!missingInstaller) assets.Add(new { id = 100, name, state = "uploaded", size = Installer.Length,
             browser_download_url = installerUrl ?? AssetBase + tag + "/" + name });
-        if (!missingHash) assets.Add(new { name = "SHA256SUMS.txt", state = "uploaded", size = 150,
+        if (!missingHash) assets.Add(new { id = 101, name = "SHA256SUMS.txt", state = "uploaded", size = 150,
             browser_download_url = AssetBase + tag + "/SHA256SUMS.txt" });
         return new { tag_name = tag, draft, prerelease, assets };
     }
@@ -151,6 +152,50 @@ internal static class Program
         }
         finally { Directory.Delete(root, recursive: true); }
         Console.WriteLine("PASS: wrong/missing/duplicate hashes, truncated/oversized downloads and launch failures never install; files cleaned up.");
+    }
+
+    private static async Task TestGatewayTimeoutFallback()
+    {
+        string root = CreateRoot();
+        try
+        {
+            int failedDirectRequests = 0;
+            int launched = 0;
+            using HttpClient client = Client(request =>
+            {
+                Uri uri = request.RequestUri!;
+                if (uri.Host == "github.com")
+                {
+                    failedDirectRequests++;
+                    return new HttpResponseMessage(HttpStatusCode.GatewayTimeout);
+                }
+                if (uri.AbsolutePath.EndsWith("/releases", StringComparison.Ordinal))
+                    return Json(new[] { Release("0.1.4") });
+                Assert(uri.Host == "api.github.com" && uri.AbsolutePath.StartsWith(
+                    $"/repos/{GitHubAppUpdater.Repository}/releases/assets/", StringComparison.Ordinal) &&
+                    request.Headers.Accept.Any(value => value.MediaType == "application/octet-stream"),
+                    "The fallback must request bytes from the asset's repository API.");
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = uri.Segments[^1] switch
+                    {
+                        "100" => new ByteArrayContent(Installer),
+                        "101" => new StringContent($"{Hash} *{InstallerName}\n"),
+                        _ => throw new Exception("Wrong asset ID in fallback request.")
+                    }
+                };
+            });
+            GitHubAppUpdater updater = new(client, new Version(0, 1, 3), info =>
+            {
+                Assert(File.ReadAllBytes(info.FileName).SequenceEqual(Installer), "API bytes must pass installer verification.");
+                launched++;
+            }, root);
+            AppRelease release = await updater.CheckAsync(default) ?? throw new Exception("Update missing.");
+            await updater.InstallAsync(release, new ImmediateProgress(_ => { }), default);
+            Assert(failedDirectRequests == 2 && launched == 1, "A 504 on either release asset must fall back to the API.");
+        }
+        finally { Directory.Delete(root, recursive: true); }
+        Console.WriteLine("PASS: both release assets recover from 504 through the GitHub API with SHA-256 verification.");
     }
 
     private static async Task TestCancellation()

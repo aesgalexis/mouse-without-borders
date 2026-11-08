@@ -10,7 +10,7 @@ using System.Text.RegularExpressions;
 namespace MouseWithOutBorders;
 
 internal sealed record AppRelease(Version Version, string Tag, string InstallerName,
-    Uri InstallerUrl, Uri ChecksumUrl, long InstallerSize);
+    Uri InstallerUrl, Uri ChecksumUrl, long InstallerSize, long InstallerAssetId = 0, long ChecksumAssetId = 0);
 
 internal interface IAppUpdater
 {
@@ -74,12 +74,12 @@ internal sealed class GitHubAppUpdater : IAppUpdater
         if (installer.Size <= 0 || installer.Size > MaximumInstallerSize)
             throw new InvalidDataException("The latest release has an invalid installer size.");
         return new AppRelease(newestVersion, newest.Tag, installerName,
-            AssetUrl(newest.Tag, installer), AssetUrl(newest.Tag, checksum), installer.Size);
+            AssetUrl(newest.Tag, installer), AssetUrl(newest.Tag, checksum), installer.Size, installer.Id, checksum.Id);
     }
 
     public async Task InstallAsync(AppRelease release, IProgress<int> progress, CancellationToken cancellationToken)
     {
-        using HttpResponseMessage manifestResponse = await GetAsync(release.ChecksumUrl, cancellationToken);
+        using HttpResponseMessage manifestResponse = await GetAssetAsync(release.ChecksumUrl, release.ChecksumAssetId, cancellationToken);
         if (manifestResponse.Content.Headers.ContentLength > 1024 * 1024)
             throw new InvalidDataException("The release checksum manifest is too large.");
         string manifest = await manifestResponse.Content.ReadAsStringAsync(cancellationToken);
@@ -96,7 +96,7 @@ internal sealed class GitHubAppUpdater : IAppUpdater
         bool started = false;
         try
         {
-            using HttpResponseMessage response = await GetAsync(release.InstallerUrl, cancellationToken);
+            using HttpResponseMessage response = await GetAssetAsync(release.InstallerUrl, release.InstallerAssetId, cancellationToken);
             long? contentLength = response.Content.Headers.ContentLength;
             if (contentLength.HasValue && contentLength.Value != release.InstallerSize)
                 throw new InvalidDataException("The installer download size does not match the release.");
@@ -148,13 +148,24 @@ internal sealed class GitHubAppUpdater : IAppUpdater
         WorkingDirectory = Path.GetDirectoryName(installerPath)!
     };
 
-    private async Task<HttpResponseMessage> GetAsync(Uri uri, CancellationToken cancellationToken)
+    private async Task<HttpResponseMessage> GetAssetAsync(Uri url, long assetId, CancellationToken cancellationToken)
+    {
+        try { return await GetAsync(url, cancellationToken); }
+        catch (HttpRequestException ex) when (assetId > 0 && (ex.StatusCode is null || (int)ex.StatusCode >= 500))
+        {
+            // GitHub serves the same uploaded asset through its API when the public download route fails.
+            Uri apiUrl = new($"https://api.github.com/repos/{Repository}/releases/assets/{assetId}?download=1");
+            return await GetAsync(apiUrl, cancellationToken, binary: true);
+        }
+    }
+
+    private async Task<HttpResponseMessage> GetAsync(Uri uri, CancellationToken cancellationToken, bool binary = false)
     {
         using HttpRequestMessage request = new(HttpMethod.Get, uri);
         request.Headers.UserAgent.ParseAdd($"MouseWithOutBorders/{CurrentVersion}");
         if (uri.Host == "api.github.com")
         {
-            request.Headers.Accept.ParseAdd("application/vnd.github+json");
+            request.Headers.Accept.ParseAdd(binary ? "application/octet-stream" : "application/vnd.github+json");
             request.Headers.Add("X-GitHub-Api-Version", "2022-11-28");
         }
         HttpResponseMessage response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead,
@@ -188,6 +199,7 @@ internal sealed class GitHubAppUpdater : IAppUpdater
 
     private sealed class AssetMetadata
     {
+        [JsonPropertyName("id")] public long Id { get; set; }
         [JsonPropertyName("name")] public string Name { get; set; } = "";
         [JsonPropertyName("state")] public string State { get; set; } = "";
         [JsonPropertyName("size")] public long Size { get; set; }

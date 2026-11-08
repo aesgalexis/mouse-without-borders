@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.24 — Recover from GitHub download errors
+
+- Retry release asset downloads through GitHub's API when the direct URL fails with an HTTP 5xx or a network error. The updater verifies the installer size and SHA-256 before launching Setup.
+- Download release files through the GitHub API in the PowerShell installer, including for older tagged versions.
+
 ## 0.1.23 — Confirmed mouse sharing
 
 - Confirm the screen layout with the other PC before showing **Connected** or forwarding local input. Stop preparation after five seconds without confirmation and explain that both PCs need MWB open and updated.

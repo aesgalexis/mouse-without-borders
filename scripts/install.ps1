@@ -4,7 +4,7 @@
 # the release's published SHA-256 manifest, and runs Inno Setup locally.
 [CmdletBinding()]
 param(
-    [string]$Version = '0.1.23',
+    [string]$Version = '0.1.24',
     [switch]$Receiver,
     [switch]$NoLaunch
 )
@@ -37,6 +37,9 @@ $setupAsset = @($release.assets | Where-Object { $_.name -eq $assetName }) | Sel
 $hashAsset = @($release.assets | Where-Object { $_.name -eq 'SHA256SUMS.txt' }) | Select-Object -First 1
 if (-not $setupAsset) { throw "Installer $assetName was not found in release v$Version." }
 if (-not $hashAsset) { throw "Release v$Version does not contain SHA256SUMS.txt. Refusing an unverified download." }
+$assetHeaders = $headers.Clone()
+$assetHeaders['Accept'] = 'application/octet-stream'
+$assetBase = "https://api.github.com/repos/$repo/releases/assets"
 
 $folder = Join-Path ([IO.Path]::GetTempPath()) ('MouseWithOutBorders-' + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $folder | Out-Null
@@ -44,8 +47,8 @@ try {
     $setupPath = Join-Path $folder $assetName
     $sumPath = Join-Path $folder 'SHA256SUMS.txt'
     Write-Host 'Downloading release files...'
-    Invoke-WebRequest -UseBasicParsing -Uri $setupAsset.browser_download_url -Headers $headers -OutFile $setupPath
-    Invoke-WebRequest -UseBasicParsing -Uri $hashAsset.browser_download_url -Headers $headers -OutFile $sumPath
+    Invoke-WebRequest -UseBasicParsing -Uri "$assetBase/$([long]$setupAsset.id)?download=1" -Headers $assetHeaders -OutFile $setupPath -TimeoutSec 120
+    Invoke-WebRequest -UseBasicParsing -Uri "$assetBase/$([long]$hashAsset.id)?download=1" -Headers $assetHeaders -OutFile $sumPath -TimeoutSec 30
     $manifest = Get-Content -LiteralPath $sumPath
     $match = $manifest | Where-Object { $_ -match ('^[0-9a-fA-F]{64}\s+\*?' + [regex]::Escape($assetName) + '$') } | Select-Object -First 1
     if (-not $match) { throw "Installer not listed in release SHA-256 manifest." }
@@ -93,5 +96,6 @@ try {
     Write-Host "Choose 'Allow connection' on one PC and 'Connect to other PC' on the other."
     Write-Host 'Private LAN only. Never forward port 42187 to the internet.'
 } finally {
-    Remove-Item -LiteralPath $folder -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath (Join-Path $folder $assetName), (Join-Path $folder 'SHA256SUMS.txt') -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $folder -Force -ErrorAction SilentlyContinue
 }

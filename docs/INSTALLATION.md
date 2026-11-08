@@ -4,14 +4,14 @@ This Windows desktop application shares mouse input and an optional clipboard be
 
 **Security update in 0.1.19:** all traffic now requires TLS 1.2/1.3 and a new **MWB3-** pairing code containing 160 random bits. Update both PCs, then copy the new receiver code and pair again. Old local codes are replaced and obsolete saved remote codes are cleared; preferences are retained. Version 0.1.18 and earlier use the older protocol and cannot connect to 0.1.19.
 
-The current release is **0.1.23**. Update both PCs to use the new mouse readiness confirmation. Existing MWB3 pairing codes remain valid. The tray icon stays gray until both PCs are ready to share the mouse. The tray menu offers **Connect** and enables **Disconnect** during an active session. On Windows 11, **Always show tray icon** is enabled by default.
+The current release is **0.1.24**. Update both PCs to use mouse readiness confirmation. Existing MWB3 pairing codes remain valid. The tray icon stays gray until both PCs are ready to share the mouse. The tray menu offers **Connect** and enables **Disconnect** during an active session. On Windows 11, **Always show tray icon** is enabled by default.
 
 **Status:** Windows x64 preview. Installation and transport tests run in GitHub Actions. Real pointer switching must still be checked on two physical machines. The current release is unsigned and Windows SmartScreen may warn before installation.
 
 ## Option A — easiest: Setup.exe
 
 1. Open the [latest release](https://github.com/aesgalexis/mouse-without-borders/releases/latest).
-2. Download [MouseWithOutBorders-0.1.23-Setup.exe](https://github.com/aesgalexis/mouse-without-borders/releases/download/v0.1.23/MouseWithOutBorders-0.1.23-Setup.exe).
+2. Download [MouseWithOutBorders-0.1.24-Setup.exe](https://github.com/aesgalexis/mouse-without-borders/releases/download/v0.1.24/MouseWithOutBorders-0.1.24-Setup.exe). If GitHub returns HTTP 504, use the PowerShell installer below.
 3. Run it on each PC. Installation is for the current Windows user, without an administrator password. You can also use the portable ZIP without installing anything.
 4. On either PC: open Mouse, with out borders; click **Allow connection**; click **Start receiving**.
 5. Note this PC's local IPv4 address and the full **MWB3-** pairing code. **Copy code** copies all four groups of random characters.
@@ -60,13 +60,13 @@ Upgrading to 0.1.19 replaces every old 8-character code or legacy hexadecimal ke
 
 ## Option B — assisted install (Windows PowerShell)
 
-This script defaults to the **0.1.23** release.
+This script defaults to the **0.1.24** release.
 
 Download scripts/install.ps1 from the repository, inspect it, then run from PowerShell in the folder where you saved it:
 
     .\install.ps1
 
-The script verifies the release download against its SHA-256 manifest, installs for the current user and opens the application.
+The script downloads the installer through GitHub's API and verifies it against the release's SHA-256 manifest. It installs for the current user and opens the application.
 
 On the **receiving PC**, use:
 
